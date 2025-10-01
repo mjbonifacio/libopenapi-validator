@@ -24,6 +24,9 @@ type SchemaValidationFailure struct {
 	// FieldPath is the JSONPath representation of the field location (e.g., "$.user.email")
 	FieldPath string `json:"fieldPath,omitempty" yaml:"fieldPath,omitempty"`
 
+	// ValidationSource identifies where the validation is being applied (requestBody, responseBody, parameter, document)
+	ValidationSource string `json:"validationSource,omitempty" yaml:"validationSource,omitempty"`
+
 	// InstancePath is the raw path segments from the root to the failing field
 	InstancePath []string `json:"instancePath,omitempty" yaml:"instancePath,omitempty"`
 
@@ -183,5 +186,29 @@ func (v *ValidationError) SetErrorCategory() {
 	default:
 		// Default to structural for unknown types
 		v.ErrorCategory = ErrorCategoryStructural
+	}
+}
+
+// SetValidationSource sets the ValidationSource field on all SchemaValidationFailures based on context
+func (v *ValidationError) SetValidationSource(source string) {
+	for _, schemaError := range v.SchemaValidationErrors {
+		schemaError.ValidationSource = source
+	}
+}
+
+// DetermineValidationSource determines the appropriate validation source based on validation type
+func (v *ValidationError) DetermineValidationSource() string {
+	switch v.ValidationType {
+	case ValidationTypeRequest, ValidationTypeBody:
+		return ValidationSourceRequestBody
+	case ValidationTypeResponse:
+		return ValidationSourceResponseBody
+	case ValidationTypeParameter, ValidationTypeQuery, ValidationTypeHeader, ValidationTypeCookie:
+		return ValidationSourceParameter
+	case ValidationTypeSchema:
+		return ValidationSourceDocument
+	default:
+		// Default to document for unknown types
+		return ValidationSourceDocument
 	}
 }

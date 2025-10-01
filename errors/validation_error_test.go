@@ -217,3 +217,68 @@ func TestValidationError_SetErrorCategory(t *testing.T) {
 	v.SetErrorCategory()
 	require.Equal(t, ErrorCategoryStructural, v.ErrorCategory)
 }
+
+func TestValidationError_SetValidationSource(t *testing.T) {
+	// Test setting validation source on schema errors
+	schemaError1 := &SchemaValidationFailure{
+		Reason:   "Invalid type",
+		Location: "/path/to/field1",
+	}
+	schemaError2 := &SchemaValidationFailure{
+		Reason:   "Missing required field",
+		Location: "/path/to/field2",
+	}
+	v := &ValidationError{
+		SchemaValidationErrors: []*SchemaValidationFailure{schemaError1, schemaError2},
+	}
+
+	v.SetValidationSource(ValidationSourceRequestBody)
+
+	require.Equal(t, ValidationSourceRequestBody, schemaError1.ValidationSource)
+	require.Equal(t, ValidationSourceRequestBody, schemaError2.ValidationSource)
+
+	// Test with different source
+	v.SetValidationSource(ValidationSourceParameter)
+	require.Equal(t, ValidationSourceParameter, schemaError1.ValidationSource)
+	require.Equal(t, ValidationSourceParameter, schemaError2.ValidationSource)
+
+	// Test with no schema errors
+	v.SchemaValidationErrors = nil
+	v.SetValidationSource(ValidationSourceResponseBody) // Should not panic
+}
+
+func TestValidationError_DetermineValidationSource(t *testing.T) {
+	// Test request body validation
+	v := &ValidationError{
+		ValidationType: ValidationTypeRequest,
+	}
+	require.Equal(t, ValidationSourceRequestBody, v.DetermineValidationSource())
+
+	v.ValidationType = ValidationTypeBody
+	require.Equal(t, ValidationSourceRequestBody, v.DetermineValidationSource())
+
+	// Test response validation
+	v.ValidationType = ValidationTypeResponse
+	require.Equal(t, ValidationSourceResponseBody, v.DetermineValidationSource())
+
+	// Test parameter validation
+	v.ValidationType = ValidationTypeParameter
+	require.Equal(t, ValidationSourceParameter, v.DetermineValidationSource())
+
+	v.ValidationType = ValidationTypeQuery
+	require.Equal(t, ValidationSourceParameter, v.DetermineValidationSource())
+
+	v.ValidationType = ValidationTypeHeader
+	require.Equal(t, ValidationSourceParameter, v.DetermineValidationSource())
+
+	v.ValidationType = ValidationTypeCookie
+	require.Equal(t, ValidationSourceParameter, v.DetermineValidationSource())
+
+	// Test schema validation
+	v.ValidationType = ValidationTypeSchema
+	require.Equal(t, ValidationSourceDocument, v.DetermineValidationSource())
+
+	// Test unknown validation type (defaults to document)
+	v.ValidationType = "unknown"
+	require.Equal(t, ValidationSourceDocument, v.DetermineValidationSource())
+}
