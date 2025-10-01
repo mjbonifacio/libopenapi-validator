@@ -326,18 +326,39 @@ func IncorrectQueryParamEnum(param *v3.Parameter, ef string, sch *base.Schema) *
 		enums = append(enums, fmt.Sprint(sch.Enum[i].Value))
 	}
 	validEnums := strings.Join(enums, ", ")
-	return &ValidationError{
-		ValidationType:    helpers.ParameterValidation,
-		ValidationSubType: helpers.ParameterValidationQuery,
-		Message:           fmt.Sprintf("Query parameter '%s' does not match allowed values", param.Name),
-		Reason: fmt.Sprintf("The query parameter '%s' has pre-defined "+
-			"values set via an enum. The value '%s' is not one of those values.", param.Name, ef),
-		SpecLine:      param.GoLow().Schema.Value.Schema().Enum.KeyNode.Line,
-		SpecCol:       param.GoLow().Schema.Value.Schema().Enum.KeyNode.Column,
-		ParameterName: param.Name,
-		Context:       sch,
-		HowToFix:      fmt.Sprintf(HowToFixParamInvalidEnum, ef, validEnums),
+	
+	// Create SchemaValidationFailure for enum violation
+	schemaFailure := &SchemaValidationFailure{
+		Reason:           fmt.Sprintf("Value '%s' is not one of the allowed enum values", ef),
+		Location:         "/enum",
+		FieldName:        param.Name,
+		FieldPath:        param.Name,
+		InstancePath:     []string{param.Name},
+		ValidationSource: ValidationSourceParameter,
 	}
+	
+	// Add reference schema if available
+	if sch != nil {
+		rendered, err := sch.RenderInline()
+		if err == nil && rendered != nil {
+			schemaFailure.ReferenceSchema = string(rendered)
+		}
+	}
+	
+	ve := &ValidationError{
+		ValidationType:         ValidationTypeQuery,
+		ValidationSubType:      ValidationSubTypeEnum,
+		Message:                fmt.Sprintf("Query parameter '%s' does not match allowed values", param.Name),
+		Reason:                 fmt.Sprintf("The query parameter '%s' has pre-defined values set via an enum. The value '%s' is not one of those values.", param.Name, ef),
+		SpecLine:               param.GoLow().Schema.Value.Schema().Enum.KeyNode.Line,
+		SpecCol:                param.GoLow().Schema.Value.Schema().Enum.KeyNode.Column,
+		ParameterName:          param.Name,
+		SchemaValidationErrors: []*SchemaValidationFailure{schemaFailure},
+		Context:                sch,
+		HowToFix:               fmt.Sprintf(HowToFixParamInvalidEnum, ef, validEnums),
+	}
+	ve.SetErrorCategory()
+	return ve
 }
 
 func IncorrectQueryParamEnumArray(param *v3.Parameter, ef string, sch *base.Schema) *ValidationError {
@@ -348,17 +369,39 @@ func IncorrectQueryParamEnumArray(param *v3.Parameter, ef string, sch *base.Sche
 			fmt.Sprint(param.GoLow().Schema.Value.Schema().Items.Value.A.Schema().Enum.Value[i].Value.Value))
 	}
 	validEnums := strings.Join(enums, ", ")
-	return &ValidationError{
-		ValidationType:    helpers.ParameterValidation,
-		ValidationSubType: helpers.ParameterValidationQuery,
-		Message:           fmt.Sprintf("Query array parameter '%s' does not match allowed values", param.Name),
-		Reason: fmt.Sprintf("The query array parameter '%s' has pre-defined "+
-			"values set via an enum. The value '%s' is not one of those values.", param.Name, ef),
-		SpecLine: param.GoLow().Schema.Value.Schema().Items.Value.A.Schema().Enum.KeyNode.Line,
-		SpecCol:  param.GoLow().Schema.Value.Schema().Items.Value.A.Schema().Enum.KeyNode.Line,
-		Context:  sch,
-		HowToFix: fmt.Sprintf(HowToFixParamInvalidEnum, ef, validEnums),
+	
+	// Create SchemaValidationFailure for array enum violation
+	schemaFailure := &SchemaValidationFailure{
+		Reason:           fmt.Sprintf("Array item '%s' is not one of the allowed enum values", ef),
+		Location:         "/items/enum",
+		FieldName:        param.Name,
+		FieldPath:        param.Name,
+		InstancePath:     []string{param.Name},
+		ValidationSource: ValidationSourceParameter,
 	}
+	
+	// Add reference schema if available
+	if sch != nil {
+		rendered, err := sch.RenderInline()
+		if err == nil && rendered != nil {
+			schemaFailure.ReferenceSchema = string(rendered)
+		}
+	}
+	
+	ve := &ValidationError{
+		ValidationType:         ValidationTypeQuery,
+		ValidationSubType:      ValidationSubTypeEnum,
+		Message:                fmt.Sprintf("Query array parameter '%s' does not match allowed values", param.Name),
+		Reason:                 fmt.Sprintf("The query array parameter '%s' has pre-defined values set via an enum. The value '%s' is not one of those values.", param.Name, ef),
+		SpecLine:               param.GoLow().Schema.Value.Schema().Items.Value.A.Schema().Enum.KeyNode.Line,
+		SpecCol:                param.GoLow().Schema.Value.Schema().Items.Value.A.Schema().Enum.KeyNode.Line,
+		ParameterName:          param.Name,
+		SchemaValidationErrors: []*SchemaValidationFailure{schemaFailure},
+		Context:                sch,
+		HowToFix:               fmt.Sprintf(HowToFixParamInvalidEnum, ef, validEnums),
+	}
+	ve.SetErrorCategory()
+	return ve
 }
 
 func IncorrectReservedValues(param *v3.Parameter, ef string, sch *base.Schema) *ValidationError {
@@ -547,32 +590,73 @@ func IncorrectPathParamEnum(param *v3.Parameter, ef string, sch *base.Schema) *V
 }
 
 func IncorrectPathParamInteger(param *v3.Parameter, item string, sch *base.Schema) *ValidationError {
-	return &ValidationError{
-		ValidationType:    helpers.ParameterValidation,
-		ValidationSubType: helpers.ParameterValidationPath,
-		Message:           fmt.Sprintf("Path parameter '%s' is not a valid integer", param.Name),
-		Reason: fmt.Sprintf("The path parameter '%s' is defined as being an integer, "+
-			"however the value '%s' is not a valid integer", param.Name, item),
-		SpecLine:      param.GoLow().Schema.KeyNode.Line,
-		SpecCol:       param.GoLow().Schema.KeyNode.Column,
-		ParameterName: param.Name,
-		Context:       sch,
-		HowToFix:      fmt.Sprintf(HowToFixParamInvalidInteger, item),
+	// Create SchemaValidationFailure for type violation
+	schemaFailure := &SchemaValidationFailure{
+		Reason:           fmt.Sprintf("Value '%s' is not a valid integer", item),
+		Location:         "/type",
+		FieldName:        param.Name,
+		FieldPath:        param.Name,
+		InstancePath:     []string{param.Name},
+		ValidationSource: ValidationSourceParameter,
 	}
+	
+	// Add reference schema if available
+	if sch != nil {
+		rendered, err := sch.RenderInline()
+		if err == nil && rendered != nil {
+			schemaFailure.ReferenceSchema = string(rendered)
+		}
+	}
+	
+	ve := &ValidationError{
+		ValidationType:         ValidationTypePath,
+		ValidationSubType:      ValidationSubTypeType,
+		Message:                fmt.Sprintf("Path parameter '%s' is not a valid integer", param.Name),
+		Reason:                 fmt.Sprintf("The path parameter '%s' is defined as being an integer, however the value '%s' is not a valid integer", param.Name, item),
+		SpecLine:               param.GoLow().Schema.KeyNode.Line,
+		SpecCol:                param.GoLow().Schema.KeyNode.Column,
+		ParameterName:          param.Name,
+		SchemaValidationErrors: []*SchemaValidationFailure{schemaFailure},
+		Context:                sch,
+		HowToFix:               fmt.Sprintf(HowToFixParamInvalidInteger, item),
+	}
+	ve.SetErrorCategory()
+	return ve
 }
 
 func IncorrectPathParamNumber(param *v3.Parameter, item string, sch *base.Schema) *ValidationError {
-	return &ValidationError{
-		ValidationType:    helpers.ParameterValidation,
-		ValidationSubType: helpers.ParameterValidationPath,
-		Message:           fmt.Sprintf("Path parameter '%s' is not a valid number", param.Name),
-		Reason: fmt.Sprintf("The path parameter '%s' is defined as being a number, "+
-			"however the value '%s' is not a valid number", param.Name, item),
-		SpecLine: param.GoLow().Schema.KeyNode.Line,
-		SpecCol:  param.GoLow().Schema.KeyNode.Column,
-		Context:  sch,
-		HowToFix: fmt.Sprintf(HowToFixParamInvalidNumber, item),
+	// Create SchemaValidationFailure for type violation
+	schemaFailure := &SchemaValidationFailure{
+		Reason:           fmt.Sprintf("Value '%s' is not a valid number", item),
+		Location:         "/type",
+		FieldName:        param.Name,
+		FieldPath:        param.Name,
+		InstancePath:     []string{param.Name},
+		ValidationSource: ValidationSourceParameter,
 	}
+	
+	// Add reference schema if available
+	if sch != nil {
+		rendered, err := sch.RenderInline()
+		if err == nil && rendered != nil {
+			schemaFailure.ReferenceSchema = string(rendered)
+		}
+	}
+	
+	ve := &ValidationError{
+		ValidationType:         ValidationTypePath,
+		ValidationSubType:      ValidationSubTypeType,
+		Message:                fmt.Sprintf("Path parameter '%s' is not a valid number", param.Name),
+		Reason:                 fmt.Sprintf("The path parameter '%s' is defined as being a number, however the value '%s' is not a valid number", param.Name, item),
+		SpecLine:               param.GoLow().Schema.KeyNode.Line,
+		SpecCol:                param.GoLow().Schema.KeyNode.Column,
+		ParameterName:          param.Name,
+		SchemaValidationErrors: []*SchemaValidationFailure{schemaFailure},
+		Context:                sch,
+		HowToFix:               fmt.Sprintf(HowToFixParamInvalidNumber, item),
+	}
+	ve.SetErrorCategory()
+	return ve
 }
 
 func IncorrectPathParamArrayNumber(

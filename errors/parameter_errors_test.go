@@ -625,11 +625,15 @@ func TestIncorrectQueryParamEnum(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.ParameterValidation, err.ValidationType)
-	require.Equal(t, helpers.ParameterValidationQuery, err.ValidationSubType)
+	require.Equal(t, ValidationTypeQuery, err.ValidationType)
+	require.Equal(t, ValidationSubTypeEnum, err.ValidationSubType)
 	require.Contains(t, err.Message, "Query parameter 'testQueryParam' does not match allowed values")
 	require.Contains(t, err.Reason, "'invalidEnum' is not one of those values")
 	require.Contains(t, err.HowToFix, "fish, crab, lobster")
+	// Validate that it now has SchemaValidationErrors
+	require.NotNil(t, err.SchemaValidationErrors)
+	require.Len(t, err.SchemaValidationErrors, 1)
+	require.Equal(t, ValidationSourceParameter, err.SchemaValidationErrors[0].ValidationSource)
 }
 
 func TestIncorrectQueryParamEnumArray(t *testing.T) {
@@ -654,11 +658,15 @@ func TestIncorrectQueryParamEnumArray(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.ParameterValidation, err.ValidationType)
-	require.Equal(t, helpers.ParameterValidationQuery, err.ValidationSubType)
+	require.Equal(t, ValidationTypeQuery, err.ValidationType)
+	require.Equal(t, ValidationSubTypeEnum, err.ValidationSubType)
 	require.Contains(t, err.Message, "Query array parameter 'testQueryParam' does not match allowed values")
 	require.Contains(t, err.Reason, "'invalidEnum' is not one of those values")
 	require.Contains(t, err.HowToFix, "fish, crab, lobster")
+	// Validate that it now has SchemaValidationErrors
+	require.NotNil(t, err.SchemaValidationErrors)
+	require.Len(t, err.SchemaValidationErrors, 1)
+	require.Equal(t, ValidationSourceParameter, err.SchemaValidationErrors[0].ValidationSource)
 }
 
 func TestIncorrectReservedValues(t *testing.T) {
@@ -978,11 +986,15 @@ func TestIncorrectPathParamNumber(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.ParameterValidation, err.ValidationType)
-	require.Equal(t, helpers.ParameterValidationPath, err.ValidationSubType)
+	require.Equal(t, ValidationTypePath, err.ValidationType)
+	require.Equal(t, ValidationSubTypeType, err.ValidationSubType)
 	require.Contains(t, err.Message, "Path parameter 'testQueryParam' is not a valid number")
 	require.Contains(t, err.Reason, "The path parameter 'testQueryParam' is defined as being a number")
 	require.Contains(t, err.HowToFix, "milky")
+	// Validate that it now has SchemaValidationErrors
+	require.NotNil(t, err.SchemaValidationErrors)
+	require.Len(t, err.SchemaValidationErrors, 1)
+	require.Equal(t, ValidationSourceParameter, err.SchemaValidationErrors[0].ValidationSource)
 }
 
 func TestIncorrectPathParamInteger(t *testing.T) {
@@ -1003,11 +1015,15 @@ func TestIncorrectPathParamInteger(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.ParameterValidation, err.ValidationType)
-	require.Equal(t, helpers.ParameterValidationPath, err.ValidationSubType)
+	require.Equal(t, ValidationTypePath, err.ValidationType)
+	require.Equal(t, ValidationSubTypeType, err.ValidationSubType)
 	require.Contains(t, err.Message, "Path parameter 'testQueryParam' is not a valid integer")
 	require.Contains(t, err.Reason, "The path parameter 'testQueryParam' is defined as being an integer")
 	require.Contains(t, err.HowToFix, "milky")
+	// Validate that it now has SchemaValidationErrors
+	require.NotNil(t, err.SchemaValidationErrors)
+	require.Len(t, err.SchemaValidationErrors, 1)
+	require.Equal(t, ValidationSourceParameter, err.SchemaValidationErrors[0].ValidationSource)
 }
 
 func TestIncorrectPathParamArrayNumber(t *testing.T) {
