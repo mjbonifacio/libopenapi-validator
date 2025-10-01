@@ -164,7 +164,7 @@ func (v *ValidationError) SetErrorCategory() {
 		v.ErrorCategory = ErrorCategorySchema
 		return
 	}
-	
+
 	// Determine category based on validation type and subtype
 	switch v.ValidationType {
 	case ValidationTypePath:

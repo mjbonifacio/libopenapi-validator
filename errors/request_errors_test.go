@@ -69,8 +69,9 @@ func TestRequestContentTypeNotFound(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.RequestBodyValidation, err.ValidationType)
-	require.Equal(t, helpers.RequestBodyContentType, err.ValidationSubType)
+	require.Equal(t, ValidationTypeRequest, err.ValidationType)
+	require.Equal(t, ValidationSubTypeContentType, err.ValidationSubType)
+	require.Equal(t, ErrorCategoryRetrieval, err.ErrorCategory)
 	require.Contains(t, err.Message, "'application/xml' does not exist")
 	require.Contains(t, err.Reason, "The content type 'application/xml' of the POST request submitted has not been defined")
 	require.Equal(t, 10, err.SpecLine)
@@ -90,8 +91,9 @@ func TestOperationNotFound(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.RequestValidation, err.ValidationType)
-	require.Equal(t, helpers.RequestMissingOperation, err.ValidationSubType)
+	require.Equal(t, ValidationTypePath, err.ValidationType)
+	require.Equal(t, ValidationSubTypeMissingOperation, err.ValidationSubType)
+	require.Equal(t, ErrorCategoryRetrieval, err.ErrorCategory)
 	require.Contains(t, err.Message, "'PATCH' does not exist")
 	require.Contains(t, err.Reason, "there was no 'PATCH' method found in the spec")
 	require.Equal(t, 15, err.SpecLine)

@@ -77,29 +77,35 @@ func InvalidDeepObject(param *v3.Parameter, qp *helpers.QueryParam) *ValidationE
 }
 
 func QueryParameterMissing(param *v3.Parameter) *ValidationError {
-	return &ValidationError{
-		ValidationType:    helpers.ParameterValidation,
-		ValidationSubType: helpers.ParameterValidationQuery,
+	ve := &ValidationError{
+		ValidationType:    ValidationTypeQuery,
+		ValidationSubType: ValidationSubTypeMissing,
 		Message:           fmt.Sprintf("Query parameter '%s' is missing", param.Name),
 		Reason: fmt.Sprintf("The query parameter '%s' is defined as being required, "+
 			"however it's missing from the requests", param.Name),
-		SpecLine: param.GoLow().Required.KeyNode.Line,
-		SpecCol:  param.GoLow().Required.KeyNode.Column,
-		HowToFix: HowToFixMissingValue,
+		SpecLine:      param.GoLow().Required.KeyNode.Line,
+		SpecCol:       param.GoLow().Required.KeyNode.Column,
+		HowToFix:      HowToFixMissingValue,
+		ParameterName: param.Name,
 	}
+	ve.SetErrorCategory()
+	return ve
 }
 
 func HeaderParameterMissing(param *v3.Parameter) *ValidationError {
-	return &ValidationError{
-		ValidationType:    helpers.ParameterValidation,
-		ValidationSubType: helpers.ParameterValidationHeader,
+	ve := &ValidationError{
+		ValidationType:    ValidationTypeHeader,
+		ValidationSubType: ValidationSubTypeMissing,
 		Message:           fmt.Sprintf("Header parameter '%s' is missing", param.Name),
 		Reason: fmt.Sprintf("The header parameter '%s' is defined as being required, "+
 			"however it's missing from the requests", param.Name),
-		SpecLine: param.GoLow().Required.KeyNode.Line,
-		SpecCol:  param.GoLow().Required.KeyNode.Column,
-		HowToFix: HowToFixMissingValue,
+		SpecLine:      param.GoLow().Required.KeyNode.Line,
+		SpecCol:       param.GoLow().Required.KeyNode.Column,
+		HowToFix:      HowToFixMissingValue,
+		ParameterName: param.Name,
 	}
+	ve.SetErrorCategory()
+	return ve
 }
 
 func HeaderParameterCannotBeDecoded(param *v3.Parameter, val string) *ValidationError {
@@ -618,14 +624,17 @@ func IncorrectPathParamArrayBoolean(
 }
 
 func PathParameterMissing(param *v3.Parameter) *ValidationError {
-	return &ValidationError{
-		ValidationType:    helpers.ParameterValidation,
-		ValidationSubType: helpers.ParameterValidationPath,
+	ve := &ValidationError{
+		ValidationType:    ValidationTypePath,
+		ValidationSubType: ValidationSubTypeMissing,
 		Message:           fmt.Sprintf("Path parameter '%s' is missing", param.Name),
 		Reason: fmt.Sprintf("The path parameter '%s' is defined as being required, "+
 			"however it's missing from the requests", param.Name),
-		SpecLine: param.GoLow().Required.KeyNode.Line,
-		SpecCol:  param.GoLow().Required.KeyNode.Column,
-		HowToFix: HowToFixMissingValue,
+		SpecLine:      param.GoLow().Required.KeyNode.Line,
+		SpecCol:       param.GoLow().Required.KeyNode.Column,
+		HowToFix:      HowToFixMissingValue,
+		ParameterName: param.Name,
 	}
+	ve.SetErrorCategory()
+	return ve
 }

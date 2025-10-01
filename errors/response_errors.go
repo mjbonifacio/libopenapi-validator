@@ -43,9 +43,9 @@ func ResponseContentTypeNotFound(op *v3.Operation,
 		specCol = op.Responses.Default.GoLow().Content.KeyNode.Column
 		contentMap = op.Responses.Default.Content
 	}
-	return &ValidationError{
-		ValidationType:    helpers.ResponseBodyValidation,
-		ValidationSubType: helpers.RequestBodyContentType,
+	ve := &ValidationError{
+		ValidationType:    ValidationTypeResponse,
+		ValidationSubType: ValidationSubTypeContentType,
 		Message: fmt.Sprintf("%s / %s operation response content type '%s' does not exist",
 			request.Method, code, mediaTypeString),
 		Reason: fmt.Sprintf("The content type '%s' of the %s response received has not "+
@@ -56,12 +56,14 @@ func ResponseContentTypeNotFound(op *v3.Operation,
 		HowToFix: fmt.Sprintf(HowToFixInvalidContentType,
 			orderedmap.Len(contentMap), strings.Join(ctypes, ", ")),
 	}
+	ve.SetErrorCategory()
+	return ve
 }
 
 func ResponseCodeNotFound(op *v3.Operation, request *http.Request, code int) *ValidationError {
-	return &ValidationError{
-		ValidationType:    helpers.ResponseBodyValidation,
-		ValidationSubType: helpers.ResponseBodyResponseCode,
+	ve := &ValidationError{
+		ValidationType:    ValidationTypeResponse,
+		ValidationSubType: ValidationSubTypeMissing,
 		Message: fmt.Sprintf("%s operation request response code '%d' does not exist",
 			request.Method, code),
 		Reason: fmt.Sprintf("The response code '%d' of the %s request submitted has not "+
@@ -71,4 +73,6 @@ func ResponseCodeNotFound(op *v3.Operation, request *http.Request, code int) *Va
 		Context:  op,
 		HowToFix: HowToFixInvalidResponseCode,
 	}
+	ve.SetErrorCategory()
+	return ve
 }

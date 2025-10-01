@@ -21,9 +21,9 @@ func RequestContentTypeNotFound(op *v3.Operation, request *http.Request, specPat
 	for pair := orderedmap.First(op.RequestBody.Content); pair != nil; pair = pair.Next() {
 		ctypes = append(ctypes, pair.Key())
 	}
-	return &ValidationError{
-		ValidationType:    helpers.RequestBodyValidation,
-		ValidationSubType: helpers.RequestBodyContentType,
+	ve := &ValidationError{
+		ValidationType:    ValidationTypeRequest,
+		ValidationSubType: ValidationSubTypeContentType,
 		Message: fmt.Sprintf("%s operation request content type '%s' does not exist",
 			request.Method, ct),
 		Reason: fmt.Sprintf("The content type '%s' of the %s request submitted has not "+
@@ -36,12 +36,14 @@ func RequestContentTypeNotFound(op *v3.Operation, request *http.Request, specPat
 		RequestMethod: request.Method,
 		SpecPath:      specPath,
 	}
+	ve.SetErrorCategory()
+	return ve
 }
 
 func OperationNotFound(pathItem *v3.PathItem, request *http.Request, method string, specPath string) *ValidationError {
-	return &ValidationError{
-		ValidationType:    helpers.RequestValidation,
-		ValidationSubType: helpers.RequestMissingOperation,
+	ve := &ValidationError{
+		ValidationType:    ValidationTypePath,
+		ValidationSubType: ValidationSubTypeMissingOperation,
 		Message: fmt.Sprintf("%s operation request content type '%s' does not exist",
 			request.Method, method),
 		Reason:        fmt.Sprintf("The path was found, but there was no '%s' method found in the spec", request.Method),
@@ -53,4 +55,6 @@ func OperationNotFound(pathItem *v3.PathItem, request *http.Request, method stri
 		RequestMethod: request.Method,
 		SpecPath:      specPath,
 	}
+	ve.SetErrorCategory()
+	return ve
 }

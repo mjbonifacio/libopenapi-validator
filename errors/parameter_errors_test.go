@@ -123,8 +123,10 @@ func TestQueryParameterMissing(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.ParameterValidation, err.ValidationType)
-	require.Equal(t, helpers.ParameterValidationQuery, err.ValidationSubType)
+	require.Equal(t, ValidationTypeQuery, err.ValidationType)
+	require.Equal(t, ValidationSubTypeMissing, err.ValidationSubType)
+	require.Equal(t, ErrorCategoryRetrieval, err.ErrorCategory)
+	require.Equal(t, "testParam", err.ParameterName)
 	require.Contains(t, err.Message, "Query parameter 'testParam' is missing")
 	require.Contains(t, err.Reason, "'testParam' is defined as being required")
 	require.Equal(t, HowToFixMissingValue, err.HowToFix)
@@ -138,8 +140,10 @@ func TestHeaderParameterMissing(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.ParameterValidation, err.ValidationType)
-	require.Equal(t, helpers.ParameterValidationHeader, err.ValidationSubType)
+	require.Equal(t, ValidationTypeHeader, err.ValidationType)
+	require.Equal(t, ValidationSubTypeMissing, err.ValidationSubType)
+	require.Equal(t, ErrorCategoryRetrieval, err.ErrorCategory)
+	require.Equal(t, "testParam", err.ParameterName)
 	require.Contains(t, err.Message, "Header parameter 'testParam' is missing")
 	require.Contains(t, err.Reason, "'testParam' is defined as being required")
 	require.Equal(t, HowToFixMissingValue, err.HowToFix)
@@ -1102,8 +1106,10 @@ func TestPathParameterMissing(t *testing.T) {
 
 	// Validate the error
 	require.NotNil(t, err)
-	require.Equal(t, helpers.ParameterValidation, err.ValidationType)
-	require.Equal(t, helpers.ParameterValidationPath, err.ValidationSubType)
+	require.Equal(t, ValidationTypePath, err.ValidationType)
+	require.Equal(t, ValidationSubTypeMissing, err.ValidationSubType)
+	require.Equal(t, ErrorCategoryRetrieval, err.ErrorCategory)
+	require.Equal(t, "testQueryParam", err.ParameterName)
 	require.Contains(t, err.Message, "Path parameter 'testQueryParam' is missing")
 	require.Contains(t, err.Reason, "The path parameter 'testQueryParam' is defined as being required")
 	require.Contains(t, err.HowToFix, "Ensure the value has been set")
