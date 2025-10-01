@@ -62,9 +62,9 @@ func ValidateRequestSchema(
 				ReferenceSchema: string(renderedSchema),
 				ReferenceObject: string(requestBody),
 			}
-			validationErrors = append(validationErrors, &errors.ValidationError{
-				ValidationType:    helpers.RequestBodyValidation,
-				ValidationSubType: helpers.Schema,
+			ve := &errors.ValidationError{
+				ValidationType:    errors.ValidationTypeRequest,
+				ValidationSubType: errors.ValidationSubTypeSchema,
 				Message: fmt.Sprintf("%s request body for '%s' failed to validate schema",
 					request.Method, request.URL.Path),
 				Reason:                 fmt.Sprintf("The request body cannot be decoded: %s", err.Error()),
@@ -73,7 +73,10 @@ func ValidateRequestSchema(
 				SchemaValidationErrors: []*errors.SchemaValidationFailure{violation},
 				HowToFix:               errors.HowToFixInvalidSchema,
 				Context:                string(renderedSchema), // attach the rendered schema to the error
-			})
+			}
+			ve.SetErrorCategory()
+			ve.SetValidationSource(errors.ValidationSourceRequestBody)
+			validationErrors = append(validationErrors, ve)
 			return false, validationErrors
 		}
 	}
@@ -204,9 +207,9 @@ func ValidateRequestSchema(
 		}
 
 		// add the error to the list
-		validationErrors = append(validationErrors, &errors.ValidationError{
-			ValidationType:    helpers.RequestBodyValidation,
-			ValidationSubType: helpers.Schema,
+		ve := &errors.ValidationError{
+			ValidationType:    errors.ValidationTypeRequest,
+			ValidationSubType: errors.ValidationSubTypeSchema,
 			Message: fmt.Sprintf("%s request body for '%s' failed to validate schema",
 				request.Method, request.URL.Path),
 			Reason: "The request body is defined as an object. " +
@@ -216,7 +219,10 @@ func ValidateRequestSchema(
 			SchemaValidationErrors: schemaValidationErrors,
 			HowToFix:               errors.HowToFixInvalidSchema,
 			Context:                string(renderedSchema), // attach the rendered schema to the error
-		})
+		}
+		ve.SetErrorCategory()
+		ve.SetValidationSource(errors.ValidationSourceRequestBody)
+		validationErrors = append(validationErrors, ve)
 	}
 	if len(validationErrors) > 0 {
 		return false, validationErrors

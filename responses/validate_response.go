@@ -137,9 +137,9 @@ func ValidateResponseSchema(
 			ReferenceSchema: string(renderedSchema),
 			ReferenceObject: string(responseBody),
 		}
-		validationErrors = append(validationErrors, &errors.ValidationError{
-			ValidationType:    helpers.ResponseBodyValidation,
-			ValidationSubType: helpers.Schema,
+		ve := &errors.ValidationError{
+			ValidationType:    errors.ValidationTypeResponse,
+			ValidationSubType: errors.ValidationSubTypeSchema,
 			Message: fmt.Sprintf("%d response body for '%s' failed schema compilation",
 				response.StatusCode, request.URL.Path),
 			Reason: fmt.Sprintf("The response schema for status code '%d' failed to compile: %s",
@@ -149,7 +149,10 @@ func ValidateResponseSchema(
 			SchemaValidationErrors: []*errors.SchemaValidationFailure{violation},
 			HowToFix:               "check the response schema for invalid JSON Schema syntax, complex regex patterns, or unsupported schema constructs",
 			Context:                string(renderedSchema),
-		})
+		}
+		ve.SetErrorCategory()
+		ve.SetValidationSource(errors.ValidationSourceResponseBody)
+		validationErrors = append(validationErrors, ve)
 		return false, validationErrors
 	}
 
@@ -231,9 +234,9 @@ func ValidateResponseSchema(
 		}
 
 		// add the error to the list
-		validationErrors = append(validationErrors, &errors.ValidationError{
-			ValidationType:    helpers.ResponseBodyValidation,
-			ValidationSubType: helpers.Schema,
+		ve := &errors.ValidationError{
+			ValidationType:    errors.ValidationTypeResponse,
+			ValidationSubType: errors.ValidationSubTypeSchema,
 			Message: fmt.Sprintf("%d response body for '%s' failed to validate schema",
 				response.StatusCode, request.URL.Path),
 			Reason: fmt.Sprintf("The response body for status code '%d' is defined as an object. "+
@@ -243,7 +246,10 @@ func ValidateResponseSchema(
 			SchemaValidationErrors: schemaValidationErrors,
 			HowToFix:               errors.HowToFixInvalidSchema,
 			Context:                string(renderedSchema), // attach the rendered schema to the error
-		})
+		}
+		ve.SetErrorCategory()
+		ve.SetValidationSource(errors.ValidationSourceResponseBody)
+		validationErrors = append(validationErrors, ve)
 	}
 	if len(validationErrors) > 0 {
 		return false, validationErrors
