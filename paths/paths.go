@@ -93,32 +93,34 @@ func FindPath(request *http.Request, document *v3.Document) (*v3.PathItem, []*er
 		}
 	}
 	if pItem != nil {
-		validationErrors := []*errors.ValidationError{{
-			ValidationType:    helpers.ParameterValidationPath,
-			ValidationSubType: "missingOperation",
+		ve := &errors.ValidationError{
+			ValidationType:    errors.ValidationTypePath,
+			ValidationSubType: errors.ValidationSubTypeMissingOperation,
 			Message:           fmt.Sprintf("%s Path '%s' not found", request.Method, request.URL.Path),
 			Reason: fmt.Sprintf("The %s method for that path does not exist in the specification",
 				request.Method),
 			SpecLine: -1,
 			SpecCol:  -1,
 			HowToFix: errors.HowToFixPath,
-		}}
+		}
+		ve.SetErrorCategory()
+		validationErrors := []*errors.ValidationError{ve}
 		errors.PopulateValidationErrors(validationErrors, request, foundPath)
 		return pItem, validationErrors, foundPath
 	}
-	validationErrors := []*errors.ValidationError{
-		{
-			ValidationType:    helpers.ParameterValidationPath,
-			ValidationSubType: "missing",
-			Message:           fmt.Sprintf("%s Path '%s' not found", request.Method, request.URL.Path),
-			Reason: fmt.Sprintf("The %s request contains a path of '%s' "+
-				"however that path, or the %s method for that path does not exist in the specification",
-				request.Method, request.URL.Path, request.Method),
-			SpecLine: -1,
-			SpecCol:  -1,
-			HowToFix: errors.HowToFixPath,
-		},
+	ve := &errors.ValidationError{
+		ValidationType:    errors.ValidationTypePath,
+		ValidationSubType: errors.ValidationSubTypeMissing,
+		Message:           fmt.Sprintf("%s Path '%s' not found", request.Method, request.URL.Path),
+		Reason: fmt.Sprintf("The %s request contains a path of '%s' "+
+			"however that path, or the %s method for that path does not exist in the specification",
+			request.Method, request.URL.Path, request.Method),
+		SpecLine: -1,
+		SpecCol:  -1,
+		HowToFix: errors.HowToFixPath,
 	}
+	ve.SetErrorCategory()
+	validationErrors := []*errors.ValidationError{ve}
 	errors.PopulateValidationErrors(validationErrors, request, "")
 	return nil, validationErrors, ""
 }
