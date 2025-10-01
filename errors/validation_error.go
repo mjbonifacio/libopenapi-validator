@@ -75,6 +75,10 @@ type ValidationError struct {
 	// ValidationSubType is a string that describes the subtype of validation that failed.
 	ValidationSubType string `json:"validationSubType" yaml:"validationSubType"`
 
+	// ErrorCategory classifies the error type for consistent handling by consumers.
+	// Values: "schema" (JSON schema validation), "retrieval" (missing resources), "structural" (format/encoding issues)
+	ErrorCategory string `json:"errorCategory" yaml:"errorCategory"`
+
 	// SpecLine is the line number in the spec where the error occurred.
 	SpecLine int `json:"specLine" yaml:"specLine"`
 
@@ -134,4 +138,50 @@ func (v *ValidationError) IsPathMissingError() bool {
 // IsOperationMissingError returns true if the error has a ValidationType of "request" and a ValidationSubType of "missingOperation"
 func (v *ValidationError) IsOperationMissingError() bool {
 	return v.ValidationType == "path" && v.ValidationSubType == "missingOperation"
+}
+
+// IsSchemaError returns true if the error is a schema validation error (has SchemaValidationErrors populated)
+func (v *ValidationError) IsSchemaError() bool {
+	return len(v.SchemaValidationErrors) > 0
+}
+
+// IsRetrievalError returns true if the error is a retrieval error (missing resources)
+func (v *ValidationError) IsRetrievalError() bool {
+	return v.ErrorCategory == ErrorCategoryRetrieval
+}
+
+// IsStructuralError returns true if the error is a structural error (format/encoding issues)
+func (v *ValidationError) IsStructuralError() bool {
+	return v.ErrorCategory == ErrorCategoryStructural
+}
+
+// SetErrorCategory sets the appropriate error category based on validation characteristics
+func (v *ValidationError) SetErrorCategory() {
+	if v.IsSchemaError() {
+		v.ErrorCategory = ErrorCategorySchema
+		return
+	}
+	
+	// Determine category based on validation type and subtype
+	switch v.ValidationType {
+	case ValidationTypePath:
+		if v.ValidationSubType == ValidationSubTypeMissing || v.ValidationSubType == ValidationSubTypeMissingOperation {
+			v.ErrorCategory = ErrorCategoryRetrieval
+		}
+	case ValidationTypeRequest, ValidationTypeResponse:
+		if v.ValidationSubType == ValidationSubTypeContentType || v.ValidationSubType == ValidationSubTypeMissing {
+			v.ErrorCategory = ErrorCategoryRetrieval
+		} else {
+			v.ErrorCategory = ErrorCategoryStructural
+		}
+	case ValidationTypeParameter, ValidationTypeQuery, ValidationTypeHeader, ValidationTypeCookie:
+		if v.ValidationSubType == ValidationSubTypeMissing || v.ValidationSubType == ValidationSubTypeRequired {
+			v.ErrorCategory = ErrorCategoryRetrieval
+		} else {
+			v.ErrorCategory = ErrorCategoryStructural
+		}
+	default:
+		// Default to structural for unknown types
+		v.ErrorCategory = ErrorCategoryStructural
+	}
 }

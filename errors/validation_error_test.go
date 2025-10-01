@@ -116,3 +116,104 @@ func TestValidationError_IsOperationMissingError(t *testing.T) {
 	v.ValidationSubType = "missingOperation"
 	require.False(t, v.IsOperationMissingError())
 }
+
+func TestValidationError_IsSchemaError(t *testing.T) {
+	// Test with schema validation errors
+	schemaError := &SchemaValidationFailure{
+		Reason:   "Invalid type",
+		Location: "/path/to/field",
+	}
+	v := &ValidationError{
+		SchemaValidationErrors: []*SchemaValidationFailure{schemaError},
+	}
+	require.True(t, v.IsSchemaError())
+
+	// Test without schema validation errors
+	v.SchemaValidationErrors = nil
+	require.False(t, v.IsSchemaError())
+
+	// Test with empty schema validation errors
+	v.SchemaValidationErrors = []*SchemaValidationFailure{}
+	require.False(t, v.IsSchemaError())
+}
+
+func TestValidationError_IsRetrievalError(t *testing.T) {
+	v := &ValidationError{
+		ErrorCategory: ErrorCategoryRetrieval,
+	}
+	require.True(t, v.IsRetrievalError())
+
+	v.ErrorCategory = ErrorCategorySchema
+	require.False(t, v.IsRetrievalError())
+}
+
+func TestValidationError_IsStructuralError(t *testing.T) {
+	v := &ValidationError{
+		ErrorCategory: ErrorCategoryStructural,
+	}
+	require.True(t, v.IsStructuralError())
+
+	v.ErrorCategory = ErrorCategorySchema
+	require.False(t, v.IsStructuralError())
+}
+
+func TestValidationError_SetErrorCategory(t *testing.T) {
+	// Test schema error categorization
+	schemaError := &SchemaValidationFailure{
+		Reason:   "Invalid type",
+		Location: "/path/to/field",
+	}
+	v := &ValidationError{
+		SchemaValidationErrors: []*SchemaValidationFailure{schemaError},
+	}
+	v.SetErrorCategory()
+	require.Equal(t, ErrorCategorySchema, v.ErrorCategory)
+
+	// Test path missing error (retrieval)
+	v = &ValidationError{
+		ValidationType:    ValidationTypePath,
+		ValidationSubType: ValidationSubTypeMissing,
+	}
+	v.SetErrorCategory()
+	require.Equal(t, ErrorCategoryRetrieval, v.ErrorCategory)
+
+	// Test operation missing error (retrieval)
+	v = &ValidationError{
+		ValidationType:    ValidationTypePath,
+		ValidationSubType: ValidationSubTypeMissingOperation,
+	}
+	v.SetErrorCategory()
+	require.Equal(t, ErrorCategoryRetrieval, v.ErrorCategory)
+
+	// Test request content type error (retrieval)
+	v = &ValidationError{
+		ValidationType:    ValidationTypeRequest,
+		ValidationSubType: ValidationSubTypeContentType,
+	}
+	v.SetErrorCategory()
+	require.Equal(t, ErrorCategoryRetrieval, v.ErrorCategory)
+
+	// Test parameter missing error (retrieval)
+	v = &ValidationError{
+		ValidationType:    ValidationTypeParameter,
+		ValidationSubType: ValidationSubTypeMissing,
+	}
+	v.SetErrorCategory()
+	require.Equal(t, ErrorCategoryRetrieval, v.ErrorCategory)
+
+	// Test parameter format error (structural)
+	v = &ValidationError{
+		ValidationType:    ValidationTypeParameter,
+		ValidationSubType: ValidationSubTypeFormat,
+	}
+	v.SetErrorCategory()
+	require.Equal(t, ErrorCategoryStructural, v.ErrorCategory)
+
+	// Test unknown validation type (defaults to structural)
+	v = &ValidationError{
+		ValidationType:    "unknown",
+		ValidationSubType: "unknown",
+	}
+	v.SetErrorCategory()
+	require.Equal(t, ErrorCategoryStructural, v.ErrorCategory)
+}
