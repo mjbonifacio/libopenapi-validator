@@ -301,6 +301,7 @@ func InvalidQueryParamInteger(param *v3.Parameter, ef string, sch *base.Schema) 
 		SpecCol:       param.GoLow().Schema.KeyNode.Column,
 		ParameterName: param.Name,
 		Context:       sch,
+		SchemaValidationErrors: []stuff
 		HowToFix:      fmt.Sprintf(HowToFixParamInvalidInteger, ef),
 	}
 }
