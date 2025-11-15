@@ -115,12 +115,8 @@ func TestValidateDocument_SchemaCompilationFailure(t *testing.T) {
 	assert.Equal(t, 1, validationError.SpecLine)
 	assert.Equal(t, 0, validationError.SpecCol)
 
-	// Verify schema validation errors
-	assert.NotEmpty(t, validationError.SchemaValidationErrors)
-	schemaErr := validationError.SchemaValidationErrors[0]
-	assert.Equal(t, "schema compilation", schemaErr.Location)
-	assert.Contains(t, schemaErr.Reason, "failed to compile OpenAPI schema")
-	assert.Equal(t, malformedSchema, schemaErr.ReferenceSchema)
+	// Schema compilation errors don't have SchemaValidationFailure objects
+	assert.Empty(t, validationError.SchemaValidationErrors)
 }
 
 // TestValidateDocument_CompilationFailure tests the actual ValidateOpenAPIDocument function
@@ -132,8 +128,8 @@ func TestValidateDocument_CompilationFailure(t *testing.T) {
 	valid, errors := ValidateOpenAPIDocument(doc)
 	assert.False(t, valid)
 	assert.Len(t, errors, 1)
-	assert.Len(t, errors[0].SchemaValidationErrors, 1)
-	assert.Contains(t, errors[0].SchemaValidationErrors[0].Reason, "failed to compile OpenAPI schema")
+	assert.Contains(t, errors[0].Reason, "The OpenAPI schema failed to compile")
+	assert.Nil(t, errors[0].SchemaValidationErrors, "Compilation errors should not have SchemaValidationErrors")
 }
 
 func TestValidateSchema_ValidateLicenseIdentifier(t *testing.T) {

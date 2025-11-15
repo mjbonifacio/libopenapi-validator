@@ -25,13 +25,9 @@ type SchemaValidationFailure struct {
 	// FieldPath is the JSONPath representation of the field location that failed validation (e.g., "$.user.email")
 	FieldPath string `json:"fieldPath,omitempty" yaml:"fieldPath,omitempty"`
 
-	// KeywordLocation is the relative path to the JsonSchema keyword that failed validation
-	// This will be empty if the validation failure did not originate from JSON Schema validation
+	// KeywordLocation is the JSON Pointer (RFC 6901) path to the schema keyword that failed validation
+	// (e.g., "/properties/age/minimum")
 	KeywordLocation string `json:"keywordLocation,omitempty" yaml:"keywordLocation,omitempty"`
-
-	// AbsoluteKeywordLocation is the absolute path to the validation failure as exposed by the jsonschema library.
-	// This will be empty if the validation failure did not originate from JSON Schema validation
-	AbsoluteKeywordLocation string `json:"absoluteKeywordLocation,omitempty" yaml:"absoluteKeywordLocation,omitempty"`
 
 	// Line is the line number where the violation occurred. This may a local line number
 	// if the validation is a schema (only schemas are validated locally, so the line number will be relative to
@@ -54,15 +50,14 @@ type SchemaValidationFailure struct {
 
 	// The original jsonschema.ValidationError object, if the schema failure originated from the jsonschema library.
 	OriginalJsonSchemaError *jsonschema.ValidationError `json:"-" yaml:"-"`
-
-	// DEPRECATED in favor of explicit use of FieldPath & InstancePath
-	// Location is the XPath-like location of the validation failure
-	Location string `json:"location,omitempty" yaml:"location,omitempty"`
 }
 
 // Error returns a string representation of the error
 func (s *SchemaValidationFailure) Error() string {
-	return fmt.Sprintf("Reason: %s, Location: %s", s.Reason, s.Location)
+	if s.FieldPath != "" {
+		return fmt.Sprintf("Reason: %s, FieldPath: %s", s.Reason, s.FieldPath)
+	}
+	return fmt.Sprintf("Reason: %s", s.Reason)
 }
 
 // ValidationError is a struct that contains all the information about a validation error.

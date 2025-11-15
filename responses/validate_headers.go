@@ -23,6 +23,8 @@ func ValidateResponseHeaders(
 	request *http.Request,
 	response *http.Response,
 	headers *orderedmap.Map[string, *v3.Header],
+	pathTemplate string,
+	statusCode string,
 	opts ...config.Option,
 ) (bool, []*errors.ValidationError) {
 	options := config.NewValidationOptions(opts...)
@@ -53,6 +55,8 @@ func ValidateResponseHeaders(
 	for name, header := range headers.FromOldest() {
 		if header.Required {
 			if _, ok := locatedHeaders[strings.ToLower(name)]; !ok {
+				keywordLocation := helpers.ConstructResponseHeaderJSONPointer(pathTemplate, request.Method, statusCode, name, "required")
+
 				validationErrors = append(validationErrors, &errors.ValidationError{
 					ValidationType:    helpers.ResponseBodyValidation,
 					ValidationSubType: helpers.ParameterValidationHeader,
@@ -63,6 +67,12 @@ func ValidateResponseHeaders(
 					HowToFix:          errors.HowToFixMissingHeader,
 					RequestPath:       request.URL.Path,
 					RequestMethod:     request.Method,
+					SchemaValidationErrors: []*errors.SchemaValidationFailure{{
+						Reason:          fmt.Sprintf("Required header '%s' is missing", name),
+						FieldName:       name,
+						InstancePath:    []string{name},
+						KeywordLocation: keywordLocation,
+					}},
 				})
 			}
 		}
