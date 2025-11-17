@@ -66,6 +66,9 @@ func ValidateOpenAPIDocument(doc libopenapi.Document, opts ...config.Option) (bo
 			// flatten the validationErrors
 			schFlatErrs := jk.BasicOutput().Errors
 
+			// Extract property name info once before processing errors (performance optimization)
+			propertyInfo := extractPropertyNameFromError(jk)
+
 			for q := range schFlatErrs {
 				er := schFlatErrs[q]
 
@@ -77,15 +80,14 @@ func ValidateOpenAPIDocument(doc libopenapi.Document, opts ...config.Option) (bo
 
 					// locate the violated property in the schema
 					located := LocateSchemaPropertyNodeByJSONPath(info.RootNode.Content[0], er.InstanceLocation)
-				violation := &liberrors.SchemaValidationFailure{
-					Reason:                  errMsg,
-					Location:                er.InstanceLocation,
-					FieldName:               helpers.ExtractFieldNameFromStringLocation(er.InstanceLocation),
-					FieldPath:               helpers.ExtractJSONPathFromStringLocation(er.InstanceLocation),
-					InstancePath:            helpers.ConvertStringLocationToPathSegments(er.InstanceLocation),
-					KeywordLocation:         er.KeywordLocation,
-					OriginalJsonSchemaError: jk,
-				}
+					violation := &liberrors.SchemaValidationFailure{
+						Reason:                  errMsg,
+						FieldName:               helpers.ExtractFieldNameFromStringLocation(er.InstanceLocation),
+						FieldPath:               helpers.ExtractJSONPathFromStringLocation(er.InstanceLocation),
+						InstancePath:            helpers.ConvertStringLocationToPathSegments(er.InstanceLocation),
+						KeywordLocation:         er.KeywordLocation,
+						OriginalJsonSchemaError: jk,
+					}
 
 					// if we have a location within the schema, add it to the error
 					if located != nil {
@@ -101,6 +103,9 @@ func ValidateOpenAPIDocument(doc libopenapi.Document, opts ...config.Option) (bo
 						// location of the violation within the rendered schema.
 						violation.Line = line
 						violation.Column = located.Column
+					} else {
+						// handles property name validation errors that don't provide useful InstanceLocation
+						applyPropertyNameFallback(propertyInfo, info.RootNode.Content[0], violation)
 					}
 					schemaValidationErrors = append(schemaValidationErrors, violation)
 				}

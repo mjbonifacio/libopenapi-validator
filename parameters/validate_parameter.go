@@ -33,19 +33,6 @@ func ValidateSingleParameterSchema(
 	validationType string,
 	subValType string,
 	o *config.ValidationOptions,
-) (validationErrors []*errors.ValidationError) {
-	return ValidateSingleParameterSchemaWithPath(schema, rawObject, entity, reasonEntity, name, validationType, subValType, o, "", "")
-}
-
-func ValidateSingleParameterSchemaWithPath(
-	schema *base.Schema,
-	rawObject any,
-	entity string,
-	reasonEntity string,
-	name string,
-	validationType string,
-	subValType string,
-	o *config.ValidationOptions,
 	pathTemplate string,
 	operation string,
 ) (validationErrors []*errors.ValidationError) {
@@ -237,19 +224,13 @@ func formatJsonSchemaValidationError(schema *base.Schema, scErrs *jsonschema.Val
 		// Construct full OpenAPI path for KeywordLocation if pathTemplate and operation are provided
 		keywordLocation := er.KeywordLocation
 		if pathTemplate != "" && operation != "" && validationType == helpers.ParameterValidation {
-			// Build full OpenAPI path: /paths/{escapedPath}/{operation}/parameters/{paramName}/schema{relativeKeywordLocation}
-			escapedPath := strings.ReplaceAll(pathTemplate, "~", "~0")
-			escapedPath = strings.ReplaceAll(escapedPath, "/", "~1")
-			escapedPath = strings.TrimPrefix(escapedPath, "~1") // Remove leading ~1
-			
 			// er.KeywordLocation is relative to the schema (e.g., "/minLength" or "/enum")
-			// Prepend the full OpenAPI path
-			keywordLocation = fmt.Sprintf("/paths/%s/%s/parameters/%s/schema%s", escapedPath, strings.ToLower(operation), name, er.KeywordLocation)
+			keyword := strings.TrimPrefix(er.KeywordLocation, "/")
+			keywordLocation = helpers.ConstructParameterJSONPointer(pathTemplate, operation, name, keyword)
 		}
 
 		fail := &errors.SchemaValidationFailure{
 			Reason:                  errMsg,
-			Location:                er.KeywordLocation, // DEPRECATED
 			FieldName:               helpers.ExtractFieldNameFromStringLocation(er.InstanceLocation),
 			FieldPath:               helpers.ExtractJSONPathFromStringLocation(er.InstanceLocation),
 			InstancePath:            helpers.ConvertStringLocationToPathSegments(er.InstanceLocation),

@@ -13,17 +13,18 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/pb33f/libopenapi-validator/cache"
-	"github.com/pb33f/libopenapi-validator/config"
-	"github.com/pb33f/libopenapi-validator/errors"
-	"github.com/pb33f/libopenapi-validator/helpers"
-	"github.com/pb33f/libopenapi-validator/schema_validation"
 	"github.com/pb33f/libopenapi/datamodel/high/base"
 	"github.com/pb33f/libopenapi/utils"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
+
+	"github.com/pb33f/libopenapi-validator/cache"
+	"github.com/pb33f/libopenapi-validator/config"
+	"github.com/pb33f/libopenapi-validator/errors"
+	"github.com/pb33f/libopenapi-validator/helpers"
+	"github.com/pb33f/libopenapi-validator/schema_validation"
 )
 
 var instanceLocationRegex = regexp.MustCompile(`^/(\d+)`)
@@ -96,7 +97,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 				SpecLine: 1,
 				SpecCol:  0,
 				HowToFix: "check the request schema for invalid JSON Schema syntax, complex regex patterns, or unsupported schema constructs",
-				Context:  referenceSchema,
+				Context:  input.Schema,
 			})
 			return false, validationErrors
 		}
@@ -141,7 +142,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 				SpecLine: 1,
 				SpecCol:  0,
 				HowToFix: errors.HowToFixInvalidSchema,
-				Context:  referenceSchema, // attach the rendered schema to the error
+				Context:  schema,
 			})
 			return false, validationErrors
 		}
@@ -167,7 +168,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 			SpecLine: line,
 			SpecCol:  col,
 			HowToFix: errors.HowToFixInvalidSchema,
-			Context:  referenceSchema, // attach the rendered schema to the error
+			Context:  schema,
 		})
 		return false, validationErrors
 	}
@@ -218,7 +219,6 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 
 				violation := &errors.SchemaValidationFailure{
 					Reason:                  errMsg,
-					Location:                er.InstanceLocation, // DEPRECATED
 					FieldName:               helpers.ExtractFieldNameFromStringLocation(er.InstanceLocation),
 					FieldPath:               helpers.ExtractJSONPathFromStringLocation(er.InstanceLocation),
 					InstancePath:            helpers.ConvertStringLocationToPathSegments(er.InstanceLocation),
@@ -266,7 +266,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 			SpecCol:                col,
 			SchemaValidationErrors: schemaValidationErrors,
 			HowToFix:               errors.HowToFixInvalidSchema,
-			Context:                referenceSchema, // attach the rendered schema to the error
+			Context:                schema,
 		})
 	}
 	if len(validationErrors) > 0 {

@@ -62,21 +62,16 @@ func validateOpenAPIDocumentWithMalformedSchema(loadedSchema string, decodedDocu
 	_, err := helpers.NewCompiledSchema("schema", []byte(loadedSchema), options)
 	if err != nil {
 		// schema compilation failed, return validation error instead of panicking
-		violation := &liberrors.SchemaValidationFailure{
-			Reason:          fmt.Sprintf("failed to compile OpenAPI schema: %s", err.Error()),
-			Location:        "schema compilation",
-			ReferenceSchema: loadedSchema,
-		}
+		// NO SchemaValidationFailure for pre-validation errors like compilation failures
 		validationErrors = append(validationErrors, &liberrors.ValidationError{
-			ValidationType:         "schema",
-			ValidationSubType:      "compilation",
-			Message:                "OpenAPI document schema compilation failed",
-			Reason:                 fmt.Sprintf("The OpenAPI schema failed to compile: %s", err.Error()),
-			SpecLine:               1,
-			SpecCol:                0,
-			SchemaValidationErrors: []*liberrors.SchemaValidationFailure{violation},
-			HowToFix:               "check the OpenAPI schema for invalid JSON Schema syntax, complex regex patterns, or unsupported schema constructs",
-			Context:                loadedSchema,
+			ValidationType:    "schema",
+			ValidationSubType: "compilation",
+			Message:           "OpenAPI document schema compilation failed",
+			Reason:            fmt.Sprintf("The OpenAPI schema failed to compile: %s", err.Error()),
+			SpecLine:          1,
+			SpecCol:           0,
+			HowToFix:          "check the OpenAPI schema for invalid JSON Schema syntax, complex regex patterns, or unsupported schema constructs",
+			Context:           loadedSchema,
 		})
 		return false, validationErrors
 	}
@@ -115,12 +110,8 @@ func TestValidateDocument_SchemaCompilationFailure(t *testing.T) {
 	assert.Equal(t, 1, validationError.SpecLine)
 	assert.Equal(t, 0, validationError.SpecCol)
 
-	// Verify schema validation errors
-	assert.NotEmpty(t, validationError.SchemaValidationErrors)
-	schemaErr := validationError.SchemaValidationErrors[0]
-	assert.Equal(t, "schema compilation", schemaErr.Location)
-	assert.Contains(t, schemaErr.Reason, "failed to compile OpenAPI schema")
-	assert.Equal(t, malformedSchema, schemaErr.ReferenceSchema)
+	// Schema compilation errors don't have SchemaValidationFailure objects
+	assert.Empty(t, validationError.SchemaValidationErrors)
 }
 
 // TestValidateDocument_CompilationFailure tests the actual ValidateOpenAPIDocument function
