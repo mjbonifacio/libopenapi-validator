@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
-	"sync"
 
 	"github.com/pb33f/libopenapi/datamodel/high/base"
 	"github.com/pb33f/libopenapi/utils"
@@ -25,19 +24,6 @@ import (
 )
 
 func ValidateSingleParameterSchema(
-	schema *base.Schema,
-	rawObject any,
-	entity string,
-	reasonEntity string,
-	name string,
-	validationType string,
-	subValType string,
-	o *config.ValidationOptions,
-) (validationErrors []*errors.ValidationError) {
-	return ValidateSingleParameterSchemaWithPath(schema, rawObject, entity, reasonEntity, name, validationType, subValType, o, "", "")
-}
-
-func ValidateSingleParameterSchemaWithPath(
 	schema *base.Schema,
 	rawObject any,
 	entity string,
@@ -110,7 +96,8 @@ func ValidateParameterSchema(
 	var validationErrors []*errors.ValidationError
 
 	// 1. build a JSON render of the schema.
-	renderedSchema, _ := schema.RenderInline()
+	renderCtx := base.NewInlineRenderContext()
+	renderedSchema, _ := schema.RenderInlineWithContext(renderCtx)
 	jsonSchema, _ := utils.ConvertYAMLtoJSON(renderedSchema)
 
 	// 2. decode the object into a json blob.
@@ -237,19 +224,13 @@ func formatJsonSchemaValidationError(schema *base.Schema, scErrs *jsonschema.Val
 		// Construct full OpenAPI path for KeywordLocation if pathTemplate and operation are provided
 		keywordLocation := er.KeywordLocation
 		if pathTemplate != "" && operation != "" && validationType == helpers.ParameterValidation {
-			// Build full OpenAPI path: /paths/{escapedPath}/{operation}/parameters/{paramName}/schema{relativeKeywordLocation}
-			escapedPath := strings.ReplaceAll(pathTemplate, "~", "~0")
-			escapedPath = strings.ReplaceAll(escapedPath, "/", "~1")
-			escapedPath = strings.TrimPrefix(escapedPath, "~1") // Remove leading ~1
-			
 			// er.KeywordLocation is relative to the schema (e.g., "/minLength" or "/enum")
-			// Prepend the full OpenAPI path
-			keywordLocation = fmt.Sprintf("/paths/%s/%s/parameters/%s/schema%s", escapedPath, strings.ToLower(operation), name, er.KeywordLocation)
+			keyword := strings.TrimPrefix(er.KeywordLocation, "/")
+			keywordLocation = helpers.ConstructParameterJSONPointer(pathTemplate, operation, name, keyword)
 		}
 
 		fail := &errors.SchemaValidationFailure{
 			Reason:                  errMsg,
-			Location:                er.KeywordLocation, // DEPRECATED
 			FieldName:               helpers.ExtractFieldNameFromStringLocation(er.InstanceLocation),
 			FieldPath:               helpers.ExtractJSONPathFromStringLocation(er.InstanceLocation),
 			InstancePath:            helpers.ConvertStringLocationToPathSegments(er.InstanceLocation),
@@ -257,7 +238,8 @@ func formatJsonSchemaValidationError(schema *base.Schema, scErrs *jsonschema.Val
 			OriginalJsonSchemaError: scErrs,
 		}
 		if schema != nil {
-			rendered, err := schema.RenderInline()
+			renderCtx := base.NewInlineRenderContext()
+			rendered, err := schema.RenderInlineWithContext(renderCtx)
 			if err == nil && rendered != nil {
 				renderedBytes, _ := json.Marshal(rendered)
 				fail.ReferenceSchema = string(renderedBytes)
@@ -286,24 +268,17 @@ func formatJsonSchemaValidationError(schema *base.Schema, scErrs *jsonschema.Val
 				}
 			}
 		}
-		processPoly := func(schemas []*base.SchemaProxy, wg *sync.WaitGroup) {
-			if len(schemas) > 0 {
-				for _, s := range schemas {
-					extractTypes(s)
-				}
+		processPoly := func(schemas []*base.SchemaProxy) {
+			for _, s := range schemas {
+				extractTypes(s)
 			}
-			wg.Done()
 		}
 
 		// check if there is polymorphism going on here.
 		if len(schema.AnyOf) > 0 || len(schema.AllOf) > 0 || len(schema.OneOf) > 0 {
-
-			wg := sync.WaitGroup{}
-			wg.Add(3)
-			go processPoly(schema.AnyOf, &wg)
-			go processPoly(schema.AllOf, &wg)
-			go processPoly(schema.OneOf, &wg)
-			wg.Wait()
+			processPoly(schema.AnyOf)
+			processPoly(schema.AllOf)
+			processPoly(schema.OneOf)
 
 			sep := "or"
 			if len(schema.AllOf) > 0 {

@@ -13,17 +13,19 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/pb33f/libopenapi-validator/cache"
-	"github.com/pb33f/libopenapi-validator/config"
-	"github.com/pb33f/libopenapi-validator/errors"
-	"github.com/pb33f/libopenapi-validator/helpers"
-	"github.com/pb33f/libopenapi-validator/schema_validation"
 	"github.com/pb33f/libopenapi/datamodel/high/base"
 	"github.com/pb33f/libopenapi/utils"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
+
+	"github.com/pb33f/libopenapi-validator/cache"
+	"github.com/pb33f/libopenapi-validator/config"
+	"github.com/pb33f/libopenapi-validator/errors"
+	"github.com/pb33f/libopenapi-validator/helpers"
+	"github.com/pb33f/libopenapi-validator/schema_validation"
+	"github.com/pb33f/libopenapi-validator/strict"
 )
 
 var instanceLocationRegex = regexp.MustCompile(`^/(\d+)`)
@@ -45,6 +47,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 	var renderedSchema, jsonSchema []byte
 	var referenceSchema string
 	var compiledSchema *jsonschema.Schema
+	var cachedNode *yaml.Node
 
 	if input.Schema == nil {
 		return false, []*errors.ValidationError{{
@@ -69,13 +72,39 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 			referenceSchema = cached.ReferenceSchema
 			jsonSchema = cached.RenderedJSON
 			compiledSchema = cached.CompiledSchema
+			cachedNode = cached.RenderedNode
 		}
 	}
 
 	// Cache miss or no cache - render and compile
 	if compiledSchema == nil {
-		renderedSchema, _ = input.Schema.RenderInline()
+		renderCtx := base.NewInlineRenderContext()
+		var renderErr error
+		renderedSchema, renderErr = input.Schema.RenderInlineWithContext(renderCtx)
 		referenceSchema = string(renderedSchema)
+
+		// If rendering failed (e.g., circular reference), return the render error
+		if renderErr != nil {
+			violation := &errors.SchemaValidationFailure{
+				Reason:          renderErr.Error(),
+				ReferenceSchema: referenceSchema,
+			}
+			validationErrors = append(validationErrors, &errors.ValidationError{
+				ValidationType:    helpers.RequestBodyValidation,
+				ValidationSubType: helpers.Schema,
+				Message: fmt.Sprintf("%s request body for '%s' failed schema rendering",
+					input.Request.Method, input.Request.URL.Path),
+				Reason: fmt.Sprintf("The request schema failed to render: %s",
+					renderErr.Error()),
+				SpecLine:               1,
+				SpecCol:                0,
+				SchemaValidationErrors: []*errors.SchemaValidationFailure{violation},
+				HowToFix:               errors.HowToFixInvalidRenderedSchema,
+				Context:                referenceSchema,
+			})
+			return false, validationErrors
+		}
+
 		jsonSchema, _ = utils.ConvertYAMLtoJSON(renderedSchema)
 
 		var err error
@@ -96,7 +125,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 				SpecLine: 1,
 				SpecCol:  0,
 				HowToFix: "check the request schema for invalid JSON Schema syntax, complex regex patterns, or unsupported schema constructs",
-				Context:  referenceSchema,
+				Context:  input.Schema,
 			})
 			return false, validationErrors
 		}
@@ -141,7 +170,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 				SpecLine: 1,
 				SpecCol:  0,
 				HowToFix: errors.HowToFixInvalidSchema,
-				Context:  referenceSchema, // attach the rendered schema to the error
+				Context:  schema,
 			})
 			return false, validationErrors
 		}
@@ -167,7 +196,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 			SpecLine: line,
 			SpecCol:  col,
 			HowToFix: errors.HowToFixInvalidSchema,
-			Context:  referenceSchema, // attach the rendered schema to the error
+			Context:  schema,
 		})
 		return false, validationErrors
 	}
@@ -182,9 +211,12 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 		schFlatErrs := jk.BasicOutput().Errors
 		var schemaValidationErrors []*errors.SchemaValidationFailure
 
-		// re-encode the schema.
-		var renderedNode yaml.Node
-		_ = yaml.Unmarshal(renderedSchema, &renderedNode)
+		// Use cached node if available, otherwise parse
+		renderedNode := cachedNode
+		if renderedNode == nil {
+			renderedNode = new(yaml.Node)
+			_ = yaml.Unmarshal(renderedSchema, renderedNode)
+		}
 		for q := range schFlatErrs {
 			er := schFlatErrs[q]
 
@@ -218,7 +250,6 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 
 				violation := &errors.SchemaValidationFailure{
 					Reason:                  errMsg,
-					Location:                er.InstanceLocation, // DEPRECATED
 					FieldName:               helpers.ExtractFieldNameFromStringLocation(er.InstanceLocation),
 					FieldPath:               helpers.ExtractJSONPathFromStringLocation(er.InstanceLocation),
 					InstancePath:            helpers.ConvertStringLocationToPathSegments(er.InstanceLocation),
@@ -266,9 +297,43 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*errors.V
 			SpecCol:                col,
 			SchemaValidationErrors: schemaValidationErrors,
 			HowToFix:               errors.HowToFixInvalidSchema,
-			Context:                referenceSchema, // attach the rendered schema to the error
+			Context:                schema,
 		})
 	}
+	if len(validationErrors) > 0 {
+		return false, validationErrors
+	}
+
+	// strict mode: check for undeclared properties in request body
+	if validationOptions.StrictMode && decodedObj != nil {
+		strictValidator := strict.NewValidator(validationOptions, input.Version)
+		strictResult := strictValidator.Validate(strict.Input{
+			Schema:    schema,
+			Data:      decodedObj,
+			Direction: strict.DirectionRequest,
+			Options:   validationOptions,
+			BasePath:  "$.body",
+			Version:   input.Version,
+		})
+
+		if !strictResult.Valid {
+			for _, undeclared := range strictResult.UndeclaredValues {
+				validationErrors = append(validationErrors,
+					errors.UndeclaredPropertyError(
+						undeclared.Path,
+						undeclared.Name,
+						undeclared.Value,
+						undeclared.DeclaredProperties,
+						undeclared.Direction.String(),
+						request.URL.Path,
+						request.Method,
+						undeclared.SpecLine,
+						undeclared.SpecCol,
+					))
+			}
+		}
+	}
+
 	if len(validationErrors) > 0 {
 		return false, validationErrors
 	}

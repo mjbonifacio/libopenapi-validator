@@ -32,8 +32,8 @@ func (v *paramValidator) ValidatePathParams(request *http.Request) (bool, []*err
 func (v *paramValidator) ValidatePathParamsWithPathItem(request *http.Request, pathItem *v3.PathItem, pathValue string) (bool, []*errors.ValidationError) {
 	if pathItem == nil {
 		return false, []*errors.ValidationError{{
-			ValidationType:    helpers.ParameterValidationPath,
-			ValidationSubType: "missing",
+			ValidationType:    helpers.PathValidation,
+			ValidationSubType: helpers.ValidationMissing,
 			Message:           fmt.Sprintf("%s Path '%s' not found", request.Method, request.URL.Path),
 			Reason: fmt.Sprintf("The %s request contains a path of '%s' "+
 				"however that path, or the %s method for that path does not exist in the specification",
@@ -46,6 +46,9 @@ func (v *paramValidator) ValidatePathParamsWithPathItem(request *http.Request, p
 	// split the path into segments
 	submittedSegments := strings.Split(paths.StripRequestPath(request, v.document), helpers.Slash)
 	pathSegments := strings.Split(pathValue, helpers.Slash)
+
+	// get the operation method for error reporting
+	operation := strings.ToLower(request.Method)
 
 	// extract params for the operation
 	params := helpers.ExtractParamsForOperation(request, pathItem)
@@ -185,6 +188,8 @@ func (v *paramValidator) ValidatePathParamsWithPathItem(request *http.Request, p
 										helpers.ParameterValidation,
 										helpers.ParameterValidationPath,
 										v.options,
+										pathValue,
+										operation,
 									)...)
 
 							case helpers.Integer:
@@ -208,6 +213,8 @@ func (v *paramValidator) ValidatePathParamsWithPathItem(request *http.Request, p
 									helpers.ParameterValidation,
 									helpers.ParameterValidationPath,
 									v.options,
+									pathValue,
+									operation,
 								)...)
 
 							case helpers.Number:
@@ -231,6 +238,8 @@ func (v *paramValidator) ValidatePathParamsWithPathItem(request *http.Request, p
 									helpers.ParameterValidation,
 									helpers.ParameterValidationPath,
 									v.options,
+									pathValue,
+									operation,
 								)...)
 
 							case helpers.Boolean:

@@ -31,8 +31,20 @@ go get github.com/pb33f/libopenapi-validator
 ## Validate OpenAPI Document
 
 ```bash
-go run github.com/pb33f/libopenapi-validator/cmd/validate@latest [--regexengine] <file>
+go run github.com/pb33f/libopenapi-validator/cmd/validate@latest [--regexengine] [--yaml2json] <file>
 ```
+
+## Install pre-commit hook
+
+To install the pre-commit hook, run the following command in your terminal:
+
+```bash
+pre-commit install
+```
+
+### Options
+
+#### --regexengine
 🔍 Example: Use a custom regex engine/flag (e.g., ecmascript)
 ```bash
 go run github.com/pb33f/libopenapi-validator/cmd/validate@latest --regexengine=ecmascript <file>
@@ -50,6 +62,26 @@ go run github.com/pb33f/libopenapi-validator/cmd/validate@latest --regexengine=e
 - ecmascript
 - re2
 - unicode
+
+#### --yaml2json
+🔍 Convert YAML files to JSON before validation (ℹ️ Default: false)
+
+[libopenapi](https://github.com/pb33f/libopenapi/blob/main/datamodel/spec_info.go#L115) passes `map[interface{}]interface{}` structures for deeply nested objects or complex mappings in the OpenAPI specification, which are not allowed in JSON.
+These structures cannot be properly converted to JSON by libopenapi and cannot be validated by jsonschema, resulting in ambiguous errors.
+
+This flag allows pre-converting from YAML to JSON to bypass this limitation of the libopenapi.
+
+**When does this happen?**
+- OpenAPI specs with deeply nested schema definitions
+- Complex `allOf`, `oneOf`, or `anyOf` structures with multiple levels
+- Specifications with intricate object mappings in examples or schema properties
+
+Enabling this flag pre-converts the YAML document from YAML to JSON, ensuring a clean JSON structure before validation.
+
+Example:
+```bash
+go run github.com/pb33f/libopenapi-validator/cmd/validate@latest --yaml2json <file>
+```
 
 ## Documentation
 

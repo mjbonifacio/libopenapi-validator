@@ -6,6 +6,7 @@ package errors
 import (
 	"fmt"
 
+	"github.com/pb33f/libopenapi-validator/helpers"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
@@ -51,14 +52,16 @@ type SchemaValidationFailure struct {
 	// The original jsonschema.ValidationError object, if the schema failure originated from the jsonschema library.
 	OriginalJsonSchemaError *jsonschema.ValidationError `json:"-" yaml:"-"`
 
-	// DEPRECATED in favor of explicit use of FieldPath & InstancePath
-	// Location is the XPath-like location of the validation failure
-	Location string `json:"location,omitempty" yaml:"location,omitempty"`
+	// Context is the raw schema object that failed validation (for programmatic access)
+	Context interface{} `json:"-" yaml:"-"`
 }
 
 // Error returns a string representation of the error
 func (s *SchemaValidationFailure) Error() string {
-	return fmt.Sprintf("Reason: %s, Location: %s", s.Reason, s.Location)
+	if s.FieldPath != "" {
+		return fmt.Sprintf("Reason: %s, FieldPath: %s", s.Reason, s.FieldPath)
+	}
+	return fmt.Sprintf("Reason: %s", s.Reason)
 }
 
 // ValidationError is a struct that contains all the information about a validation error.
@@ -128,10 +131,10 @@ func (v *ValidationError) Error() string {
 
 // IsPathMissingError returns true if the error has a ValidationType of "path" and a ValidationSubType of "missing"
 func (v *ValidationError) IsPathMissingError() bool {
-	return v.ValidationType == "path" && v.ValidationSubType == "missing"
+	return v.ValidationType == helpers.PathValidation && v.ValidationSubType == helpers.ValidationMissing
 }
 
 // IsOperationMissingError returns true if the error has a ValidationType of "request" and a ValidationSubType of "missingOperation"
 func (v *ValidationError) IsOperationMissingError() bool {
-	return v.ValidationType == "path" && v.ValidationSubType == "missingOperation"
+	return v.ValidationType == helpers.PathValidation && v.ValidationSubType == helpers.ValidationMissingOperation
 }

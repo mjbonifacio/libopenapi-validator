@@ -7,17 +7,18 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/pb33f/libopenapi-validator/helpers"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSchemaValidationFailure_Error(t *testing.T) {
 	// Test the Error method of SchemaValidationFailure
 	s := &SchemaValidationFailure{
-		Reason:   "Invalid type",
-		Location: "/path/to/property",
+		Reason:    "Invalid type",
+		FieldPath: "$.path.to.property",
 	}
 
-	expectedError := "Reason: Invalid type, Location: /path/to/property"
+	expectedError := "Reason: Invalid type, FieldPath: $.path.to.property"
 	require.Equal(t, expectedError, s.Error())
 }
 
@@ -48,8 +49,8 @@ func TestValidationError_Error_WithSpecLineAndColumn(t *testing.T) {
 func TestValidationError_Error_WithSchemaValidationErrors(t *testing.T) {
 	// Test the Error method of ValidationError with SchemaValidationErrors
 	schemaError := &SchemaValidationFailure{
-		Reason:   "Invalid enum value",
-		Location: "/path/to/enum",
+		Reason:    "Invalid enum value",
+		FieldPath: "$.path.to.enum",
 	}
 	v := &ValidationError{
 		Message:                "Enum validation failed",
@@ -64,8 +65,8 @@ func TestValidationError_Error_WithSchemaValidationErrors(t *testing.T) {
 func TestValidationError_Error_WithSchemaValidationErrors_AndSpecLineColumn(t *testing.T) {
 	// Test the Error method of ValidationError with SchemaValidationErrors and SpecLine and SpecCol
 	schemaError := &SchemaValidationFailure{
-		Reason:   "Invalid enum value",
-		Location: "/path/to/enum",
+		Reason:    "Invalid enum value",
+		FieldPath: "$.path.to.enum",
 	}
 	v := &ValidationError{
 		Message:                "Enum validation failed",
@@ -82,8 +83,8 @@ func TestValidationError_Error_WithSchemaValidationErrors_AndSpecLineColumn(t *t
 func TestValidationError_IsPathMissingError(t *testing.T) {
 	// Test the IsPathMissingError method
 	v := &ValidationError{
-		ValidationType:    "path",
-		ValidationSubType: "missing",
+		ValidationType:    helpers.PathValidation,
+		ValidationSubType: helpers.ValidationMissing,
 	}
 
 	require.True(t, v.IsPathMissingError())
@@ -93,16 +94,16 @@ func TestValidationError_IsPathMissingError(t *testing.T) {
 	require.False(t, v.IsPathMissingError())
 
 	// Test with different ValidationType
-	v.ValidationType = "request"
-	v.ValidationSubType = "missing"
+	v.ValidationType = helpers.RequestValidation
+	v.ValidationSubType = helpers.ValidationMissing
 	require.False(t, v.IsPathMissingError())
 }
 
 func TestValidationError_IsOperationMissingError(t *testing.T) {
 	// Test the IsOperationMissingError method
 	v := &ValidationError{
-		ValidationType:    "path",
-		ValidationSubType: "missingOperation",
+		ValidationType:    helpers.PathValidation,
+		ValidationSubType: helpers.ValidationMissingOperation,
 	}
 
 	require.True(t, v.IsOperationMissingError())
@@ -112,7 +113,7 @@ func TestValidationError_IsOperationMissingError(t *testing.T) {
 	require.False(t, v.IsOperationMissingError())
 
 	// Test with different ValidationType
-	v.ValidationType = "request"
-	v.ValidationSubType = "missingOperation"
+	v.ValidationType = helpers.RequestValidation
+	v.ValidationSubType = helpers.ValidationMissingOperation
 	require.False(t, v.IsOperationMissingError())
 }

@@ -1,4 +1,4 @@
-// Copyright 2023 Princess B33f Heavy Industries / Dave Shanley
+// Copyright 2023-2025 Princess Beef Heavy Industries, LLC / Dave Shanley
 // SPDX-License-Identifier: MIT
 
 package validator
@@ -17,8 +17,6 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/pb33f/libopenapi-validator/cache"
-
 	"github.com/dlclark/regexp2"
 	"github.com/pb33f/libopenapi"
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -27,7 +25,9 @@ import (
 
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 
+	"github.com/pb33f/libopenapi-validator/cache"
 	"github.com/pb33f/libopenapi-validator/config"
+	"github.com/pb33f/libopenapi-validator/errors"
 	"github.com/pb33f/libopenapi-validator/helpers"
 )
 
@@ -244,6 +244,145 @@ paths:
 	assert.Len(t, errors, 0)
 }
 
+func TestStrictMode_ValidateHttpRequestIntegration(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /things/{id}:
+    post:
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: q
+          schema:
+            type: string
+        - in: header
+          name: X-Known
+          schema:
+            type: string
+        - in: cookie
+          name: session
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean`
+
+	doc, err := libopenapi.NewDocument([]byte(spec))
+	require.NoError(t, err)
+
+	v, errs := NewValidator(doc, config.WithStrictMode())
+	require.Empty(t, errs)
+
+	body := map[string]any{
+		"name":  "ok",
+		"extra": "nope",
+	}
+	bodyBytes, _ := json.Marshal(body)
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/things/123?q=ok&extra=1", bytes.NewBuffer(bodyBytes))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Known", "known")
+	request.Header.Set("X-Extra", "nope")
+	request.AddCookie(&http.Cookie{Name: "session", Value: "ok"})
+	request.AddCookie(&http.Cookie{Name: "other", Value: "nope"})
+
+	valid, valErrs := v.ValidateHttpRequest(request)
+	assert.False(t, valid)
+
+	strictSubTypes := make(map[string]bool)
+	for _, vErr := range valErrs {
+		if vErr.ValidationType == errors.StrictValidationType {
+			strictSubTypes[vErr.ValidationSubType] = true
+		}
+	}
+
+	assert.True(t, strictSubTypes[errors.StrictSubTypeProperty])
+	assert.True(t, strictSubTypes[errors.StrictSubTypeHeader])
+	assert.True(t, strictSubTypes[errors.StrictSubTypeQuery])
+	assert.True(t, strictSubTypes[errors.StrictSubTypeCookie])
+}
+
+func TestStrictMode_ValidateHttpResponseHeadersIntegration(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /things/{id}:
+    get:
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok
+          headers:
+            X-Res:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean`
+
+	doc, err := libopenapi.NewDocument([]byte(spec))
+	require.NoError(t, err)
+
+	v, errs := NewValidator(doc, config.WithStrictMode())
+	require.Empty(t, errs)
+
+	request, _ := http.NewRequest(http.MethodGet, "https://things.com/things/123", http.NoBody)
+
+	body := map[string]any{"ok": true}
+	bodyBytes, _ := json.Marshal(body)
+
+	response := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type": {"application/json"},
+			"X-Res":        {"ok"},
+			"X-Extra":      {"nope"},
+		},
+		Body: io.NopCloser(bytes.NewBuffer(bodyBytes)),
+	}
+
+	valid, valErrs := v.ValidateHttpResponse(request, response)
+	assert.False(t, valid)
+
+	foundStrictHeader := false
+	for _, vErr := range valErrs {
+		if vErr.ValidationType == errors.StrictValidationType &&
+			vErr.ValidationSubType == errors.StrictSubTypeHeader {
+			foundStrictHeader = true
+			break
+		}
+	}
+	assert.True(t, foundStrictHeader)
+}
+
 func TestNewValidator_WithCustomFormat_FormatError(t *testing.T) {
 	spec := `openapi: 3.1.0
 paths:
@@ -313,7 +452,7 @@ paths:
 	assert.Equal(t, "POST request body for '/burgers/createBurger' failed to validate schema", errors[0].Message)
 	require.Len(t, errors[0].SchemaValidationErrors, 1)
 	require.NotNil(t, errors[0].SchemaValidationErrors[0])
-	assert.Equal(t, "/properties/name/format", errors[0].SchemaValidationErrors[0].Location)
+	assert.Equal(t, "/properties/name/format", errors[0].SchemaValidationErrors[0].KeywordLocation)
 	assert.Equal(t, "'big mac' is not valid capital: expected first latter to be uppercase", errors[0].SchemaValidationErrors[0].Reason)
 }
 
@@ -1354,9 +1493,10 @@ func TestNewValidator_PetStore_PetGet200_PathNotFound(t *testing.T) {
 	valid, errors := v.ValidateHttpRequestResponse(request, res.Result())
 
 	assert.False(t, valid)
-	assert.Len(t, errors, 2)
-	assert.Equal(t, "API Key api_key not found in header", errors[0].Message)
-	assert.Equal(t, "Path parameter 'petId' is not a valid integer", errors[1].Message)
+	// Note: /pet/{petId} allows api_key OR petstore_auth (OAuth2). Since OAuth2 is not validated,
+	// security passes. Only the path parameter validation fails.
+	assert.Len(t, errors, 1)
+	assert.Equal(t, "Path parameter 'petId' is not a valid integer", errors[0].Message)
 }
 
 func TestNewValidator_PetStore_PetGet200(t *testing.T) {
@@ -2010,7 +2150,7 @@ func TestCacheWarming_PopulatesCache(t *testing.T) {
 	require.NotNil(t, validator.options.SchemaCache)
 
 	count := 0
-	validator.options.SchemaCache.Range(func(key [32]byte, value *cache.SchemaCacheEntry) bool {
+	validator.options.SchemaCache.Range(func(key uint64, value *cache.SchemaCacheEntry) bool {
 		count++
 		assert.NotNil(t, value.CompiledSchema, "Cache entry should have compiled schema")
 		assert.NotEmpty(t, value.ReferenceSchema, "Cache entry should have pre-converted ReferenceSchema string")
@@ -2143,7 +2283,7 @@ paths:
 	require.NotNil(t, validator.options.SchemaCache)
 
 	count := 0
-	validator.options.SchemaCache.Range(func(key [32]byte, value *cache.SchemaCacheEntry) bool {
+	validator.options.SchemaCache.Range(func(key uint64, value *cache.SchemaCacheEntry) bool {
 		count++
 		return true
 	})
@@ -2212,7 +2352,7 @@ paths:
 	require.NotNil(t, validator.options.SchemaCache)
 
 	count := 0
-	validator.options.SchemaCache.Range(func(key [32]byte, value *cache.SchemaCacheEntry) bool {
+	validator.options.SchemaCache.Range(func(key uint64, value *cache.SchemaCacheEntry) bool {
 		count++
 		return true
 	})
@@ -2249,9 +2389,271 @@ paths:
 	require.NotNil(t, validator.options.SchemaCache)
 
 	count := 0
-	validator.options.SchemaCache.Range(func(key [32]byte, value *cache.SchemaCacheEntry) bool {
+	validator.options.SchemaCache.Range(func(key uint64, value *cache.SchemaCacheEntry) bool {
 		count++
 		return true
 	})
 	assert.Greater(t, count, 0, "Schema cache should have entries from path-level parameters")
+}
+
+// TestSortValidationErrors tests that validation errors are sorted deterministically
+func TestSortValidationErrors(t *testing.T) {
+	// Create errors in random order
+	errs := []*errors.ValidationError{
+		{ValidationType: helpers.SecurityValidation, Message: "API Key missing"},
+		{ValidationType: helpers.ParameterValidation, Message: "Path param invalid"},
+		{ValidationType: helpers.RequestValidation, Message: "Body invalid"},
+		{ValidationType: helpers.ParameterValidation, Message: "Header missing"},
+		{ValidationType: helpers.SecurityValidation, Message: "Auth header missing"},
+	}
+
+	sortValidationErrors(errs)
+
+	// Verify sorted by validation type first, then by message
+	assert.Equal(t, helpers.ParameterValidation, errs[0].ValidationType)
+	assert.Equal(t, "Header missing", errs[0].Message)
+	assert.Equal(t, helpers.ParameterValidation, errs[1].ValidationType)
+	assert.Equal(t, "Path param invalid", errs[1].Message)
+	assert.Equal(t, helpers.RequestValidation, errs[2].ValidationType)
+	assert.Equal(t, "Body invalid", errs[2].Message)
+	assert.Equal(t, helpers.SecurityValidation, errs[3].ValidationType)
+	assert.Equal(t, "API Key missing", errs[3].Message)
+	assert.Equal(t, helpers.SecurityValidation, errs[4].ValidationType)
+	assert.Equal(t, "Auth header missing", errs[4].Message)
+}
+
+// TestSortValidationErrors_Empty tests sorting empty slice
+func TestSortValidationErrors_Empty(t *testing.T) {
+	errs := []*errors.ValidationError{}
+	sortValidationErrors(errs)
+	assert.Empty(t, errs)
+}
+
+// TestSortValidationErrors_SingleElement tests sorting single element slice
+func TestSortValidationErrors_SingleElement(t *testing.T) {
+	errs := []*errors.ValidationError{
+		{ValidationType: helpers.ParameterValidation, Message: "Invalid value"},
+	}
+	sortValidationErrors(errs)
+	assert.Len(t, errs, 1)
+	assert.Equal(t, helpers.ParameterValidation, errs[0].ValidationType)
+}
+
+func TestHEAD_ExplicitOperation_ResponseValidation(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /resource:
+    head:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+`
+	doc, err := libopenapi.NewDocument([]byte(spec))
+	require.NoError(t, err)
+
+	v, errs := NewValidator(doc)
+	require.Empty(t, errs)
+
+	// create a HEAD request
+	request, _ := http.NewRequest(http.MethodHead, "https://example.com/resource", nil)
+
+	// simulate a server response that includes a JSON body matching the schema
+	bodyBytes, _ := json.Marshal(map[string]bool{"ok": true})
+	response := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewBuffer(bodyBytes)),
+	}
+
+	valid, valErrs := v.ValidateHttpResponse(request, response)
+	assert.False(t, valid)
+	assert.Len(t, valErrs, 1)
+
+	// Also validate a response without a body (common for HEAD)
+	responseNoBody := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       http.NoBody,
+	}
+
+	validNoBody, valErrsNoBody := v.ValidateHttpResponse(request, responseNoBody)
+	assert.True(t, validNoBody)
+	assert.Len(t, valErrsNoBody, 0)
+}
+
+func TestHEAD_ImplicitViaGET_ResponseValidation(t *testing.T) {
+	// This spec defines only GET for /resource. Ensure a HEAD request that returns the same body
+	// as GET will still validate against the documented GET response.
+	spec := `openapi: 3.1.0
+paths:
+  /resource:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+`
+	doc, err := libopenapi.NewDocument([]byte(spec))
+	require.NoError(t, err)
+
+	v, errs := NewValidator(doc)
+	require.Empty(t, errs)
+
+	// create a HEAD request (no explicit HEAD operation in the spec)
+	request, _ := http.NewRequest(http.MethodHead, "https://example.com/resource", nil)
+
+	// simulate a server response that includes a JSON body like the GET response would.
+	bodyBytes, _ := json.Marshal(map[string]bool{"ok": true})
+	response := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewBuffer(bodyBytes)),
+	}
+
+	valid, valErrs := v.ValidateHttpResponse(request, response)
+	// Expect validation to succeed when HEAD responses are validated against GET response definitions.
+	assert.False(t, valid)
+	assert.Len(t, valErrs, 1)
+
+	responseNoBody := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       http.NoBody,
+	}
+
+	validNoBody, valErrsNoBody := v.ValidateHttpResponse(request, responseNoBody)
+	// Expect validation to succeed when HEAD responses are validated against GET response definitions.
+	assert.True(t, validNoBody)
+	assert.Len(t, valErrsNoBody, 0)
+}
+
+func TestHEAD_BothGETAndHEAD_SameSchema_Valid(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /resource:
+    get:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+    head:
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+`
+	doc, err := libopenapi.NewDocument([]byte(spec))
+	require.NoError(t, err)
+
+	v, errs := NewValidator(doc)
+	require.Empty(t, errs)
+
+	// HEAD request to /resource
+	request, _ := http.NewRequest(http.MethodHead, "https://example.com/resource", nil)
+
+	// server returns a JSON body that matches the schema
+	bodyBytes, _ := json.Marshal(map[string]bool{"ok": true})
+	response := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{helpers.ContentTypeHeader: []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewBuffer(bodyBytes)),
+	}
+
+	valid, valErrs := v.ValidateHttpResponse(request, response)
+	assert.False(t, valid)
+	assert.Len(t, valErrs, 1)
+
+	responseNoBody := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       http.NoBody,
+	}
+
+	validNoBody, valErrsNoBody := v.ValidateHttpResponse(request, responseNoBody)
+	// Expect validation to succeed when HEAD responses are validated against GET response definitions.
+	assert.True(t, validNoBody)
+	assert.Len(t, valErrsNoBody, 0)
+}
+
+func TestHEAD_BothGETAndHEAD_DifferentSchemas_HeadPreferred(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /resource:
+    get:
+      responses:
+        "200":
+          description: get schema
+          content:
+            application/json:
+              schema:
+                type: object
+                required: ["g"]
+                properties:
+                  g:
+                    type: string
+    head:
+      responses:
+        "200":
+          description: head schema
+          headers:
+            content-length:
+              description: size of the file
+              schema:
+                type: integer
+`
+	doc, err := libopenapi.NewDocument([]byte(spec))
+	require.NoError(t, err)
+
+	v, errs := NewValidator(doc)
+	require.Empty(t, errs)
+
+	// Case A: response matches HEAD schema has content-length header but response contains content-type
+	reqA, _ := http.NewRequest(http.MethodHead, "https://example.com/resource", nil)
+	respA := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{helpers.ContentTypeHeader: []string{"application/json"}},
+		Body:       http.NoBody,
+	}
+	// No support for response headers validation.
+	// Only validates response content-type: json
+	validA, errsA := v.ValidateHttpResponse(reqA, respA)
+	assert.True(t, validA)
+	assert.Len(t, errsA, 0)
+
+	// Case B: response matches GET schema (has "g") but not HEAD (missing required "h") -> should fail
+	reqB, _ := http.NewRequest(http.MethodGet, "https://example.com/resource", nil)
+	bodyB, _ := json.Marshal(map[string]string{"g": "get-value"})
+	respB := &http.Response{
+		StatusCode: 200,
+		Header:     http.Header{helpers.ContentTypeHeader: []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewBuffer(bodyB)),
+	}
+	validB, errsB := v.ValidateHttpResponse(reqB, respB)
+	assert.True(t, validB)
+	assert.Len(t, errsB, 0)
 }

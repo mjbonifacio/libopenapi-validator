@@ -12,10 +12,12 @@ import (
 	"testing"
 
 	"github.com/pb33f/libopenapi"
-	"github.com/pb33f/libopenapi-validator/config"
-	"github.com/pb33f/libopenapi-validator/paths"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pb33f/libopenapi-validator/config"
+	"github.com/pb33f/libopenapi-validator/helpers"
+	"github.com/pb33f/libopenapi-validator/paths"
 )
 
 func TestValidateBody_NotRequiredBody(t *testing.T) {
@@ -1493,4 +1495,326 @@ components:
 	assert.Len(t, errors, 1)
 	assert.Len(t, errors[0].SchemaValidationErrors, 1)
 	assert.Equal(t, "'test' is not valid email: missing @", errors[0].SchemaValidationErrors[0].Reason)
+}
+
+func TestValidateBody_StrictMode_UndeclaredProperty(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /burgers/createBurger:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                patties:
+                  type: integer`
+
+	doc, _ := libopenapi.NewDocument([]byte(spec))
+
+	m, _ := doc.BuildV3Model()
+	v := NewRequestBodyValidator(&m.Model, config.WithStrictMode())
+
+	// Include an undeclared property 'extra'
+	body := map[string]interface{}{
+		"name":    "Big Mac",
+		"patties": 2,
+		"extra":   "undeclared property",
+	}
+
+	bodyBytes, _ := json.Marshal(body)
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/burgers/createBurger",
+		bytes.NewBuffer(bodyBytes))
+	request.Header.Set("Content-Type", "application/json")
+
+	valid, errors := v.ValidateRequestBody(request)
+
+	assert.False(t, valid)
+	assert.Len(t, errors, 1)
+	assert.Contains(t, errors[0].Message, "extra")
+	assert.Contains(t, errors[0].Message, "not declared")
+}
+
+func TestValidateBody_StrictMode_ValidRequest(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /burgers/createBurger:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                patties:
+                  type: integer`
+
+	doc, _ := libopenapi.NewDocument([]byte(spec))
+
+	m, _ := doc.BuildV3Model()
+	v := NewRequestBodyValidator(&m.Model, config.WithStrictMode())
+
+	// Only declared properties
+	body := map[string]interface{}{
+		"name":    "Big Mac",
+		"patties": 2,
+	}
+
+	bodyBytes, _ := json.Marshal(body)
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/burgers/createBurger",
+		bytes.NewBuffer(bodyBytes))
+	request.Header.Set("Content-Type", "application/json")
+
+	valid, errors := v.ValidateRequestBody(request)
+
+	assert.True(t, valid)
+	assert.Len(t, errors, 0)
+}
+
+func TestValidateRequestBody_XMLMarshalError(t *testing.T) {
+	spec := []byte(`
+openapi: 3.1.0
+info:
+  title: Test Spec
+  version: 1.0.0
+paths:
+  /test:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/xml:
+            schema:
+              type: object
+              properties:
+                bad_number:
+                  type: number
+      responses:
+        '200':
+          description: Success
+`)
+
+	doc, _ := libopenapi.NewDocument([]byte(spec))
+
+	m, _ := doc.BuildV3Model()
+	v := NewRequestBodyValidator(&m.Model, config.WithXmlBodyValidation())
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/test",
+		bytes.NewBuffer([]byte("<bad_number>NaN</bad_number>")))
+	request.Header.Set("Content-Type", "application/xml")
+
+	valid, errors := v.ValidateRequestBody(request)
+
+	assert.False(t, valid)
+	assert.Len(t, errors, 1)
+	assert.Equal(t, errors[0].Message, "xml example is malformed")
+}
+
+func TestValidateRequestBody_URLEncodedMarshalError(t *testing.T) {
+	spec := []byte(`
+openapi: 3.1.0
+info:
+  title: Test Spec
+  version: 1.0.0
+paths:
+  /test:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                bad_number:
+                  type: number
+      responses:
+        '200':
+          description: Success
+`)
+
+	doc, _ := libopenapi.NewDocument([]byte(spec))
+
+	m, _ := doc.BuildV3Model()
+	v := NewRequestBodyValidator(&m.Model, config.WithURLEncodedBodyValidation())
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/test",
+		bytes.NewBuffer([]byte("bad_number=NaN")))
+	request.Header.Set("Content-Type", helpers.URLEncodedContentType)
+
+	valid, errors := v.ValidateRequestBody(request)
+
+	assert.False(t, valid)
+	assert.Len(t, errors, 1)
+	assert.Equal(t, errors[0].Message, "Unable to parse form-urlencoded body")
+}
+
+func TestValidateBody_URLEncodedRequest(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /burgers/createBurger:
+    post:
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                patties:
+                  type: integer`
+
+	doc, _ := libopenapi.NewDocument([]byte(spec))
+
+	m, _ := doc.BuildV3Model()
+	v := NewRequestBodyValidator(&m.Model, config.WithURLEncodedBodyValidation())
+
+	body := "name=cheeseburger&patties=23"
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/burgers/createBurger",
+		bytes.NewBuffer([]byte(body)))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	valid, errors := v.ValidateRequestBody(request)
+	assert.True(t, valid)
+	assert.Len(t, errors, 0)
+
+	body = "name=cheeseburger&patties=23.4"
+
+	request, _ = http.NewRequest(http.MethodPost, "https://things.com/burgers/createBurger",
+		bytes.NewBuffer([]byte(body)))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	valid, errors = v.ValidateRequestBody(request)
+
+	assert.False(t, valid)
+	assert.Len(t, errors, 1)
+}
+
+func TestValidateBody_XmlRequest(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /burgers/createBurger:
+    post:
+      requestBody:
+        content:
+          application/xml:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                patties:
+                  type: integer
+                  xml:
+                    name: cost`
+
+	doc, _ := libopenapi.NewDocument([]byte(spec))
+
+	m, _ := doc.BuildV3Model()
+	v := NewRequestBodyValidator(&m.Model, config.WithXmlBodyValidation())
+
+	body := "<name>cheeseburger</name><cost>23</cost>"
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/burgers/createBurger",
+		bytes.NewBuffer([]byte(body)))
+	request.Header.Set("Content-Type", "application/xml")
+
+	valid, errors := v.ValidateRequestBody(request)
+
+	assert.True(t, valid)
+	assert.Len(t, errors, 0)
+}
+
+func TestValidateBody_XmlMalformedRequest(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /burgers/createBurger:
+    post:
+      requestBody:
+        content:
+          application/xml:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                patties:
+                  type: integer
+                  xml:
+                    name: cost`
+
+	doc, _ := libopenapi.NewDocument([]byte(spec))
+
+	m, _ := doc.BuildV3Model()
+	v := NewRequestBodyValidator(&m.Model, config.WithXmlBodyValidation())
+
+	body := ""
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/burgers/createBurger",
+		bytes.NewBuffer([]byte(body)))
+	request.Header.Set("Content-Type", "application/xml")
+
+	valid, errors := v.ValidateRequestBody(request)
+
+	assert.False(t, valid)
+	assert.Len(t, errors, 1)
+
+	err := errors[0]
+	assert.Equal(t, helpers.XmlValidation, err.ValidationType)
+	assert.Contains(t, err.Reason, "failed to parse xml")
+}
+
+func TestValidateBody_XmlRequestTransformations(t *testing.T) {
+	spec := `openapi: 3.1.0
+paths:
+  /burgers/createBurger:
+    post:
+      requestBody:
+        content:
+          application/xml:
+            schema:
+              type: object
+              xml:
+                name: Burger
+              required:
+                - name
+                - patties
+              properties:
+                name:
+                  type: string
+                patties:
+                  type: integer
+                  xml:
+                    name: cost`
+
+	doc, _ := libopenapi.NewDocument([]byte(spec))
+
+	m, _ := doc.BuildV3Model()
+	v := NewRequestBodyValidator(&m.Model, config.WithXmlBodyValidation())
+
+	body := "<Burger><name>cheeseburger</name><cost>23</cost></Burger>"
+
+	request, _ := http.NewRequest(http.MethodPost, "https://things.com/burgers/createBurger",
+		bytes.NewBuffer([]byte(body)))
+	request.Header.Set("Content-Type", "application/xml")
+
+	valid, errors := v.ValidateRequestBody(request)
+
+	assert.True(t, valid)
+	assert.Len(t, errors, 0)
 }

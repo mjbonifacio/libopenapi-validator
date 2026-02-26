@@ -4,7 +4,10 @@
 package responses
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,6 +20,7 @@ import (
 	"github.com/pb33f/libopenapi-validator/errors"
 	"github.com/pb33f/libopenapi-validator/helpers"
 	"github.com/pb33f/libopenapi-validator/paths"
+	"github.com/pb33f/libopenapi-validator/schema_validation"
 )
 
 func (v *responseBodyValidator) ValidateResponseBody(
@@ -33,8 +37,8 @@ func (v *responseBodyValidator) ValidateResponseBody(
 func (v *responseBodyValidator) ValidateResponseBodyWithPathItem(request *http.Request, response *http.Response, pathItem *v3.PathItem, pathFound string) (bool, []*errors.ValidationError) {
 	if pathItem == nil {
 		return false, []*errors.ValidationError{{
-			ValidationType:    helpers.ParameterValidationPath,
-			ValidationSubType: "missing",
+			ValidationType:    helpers.PathValidation,
+			ValidationSubType: helpers.ValidationMissing,
 			Message:           fmt.Sprintf("%s Path '%s' not found", request.Method, request.URL.Path),
 			Reason: fmt.Sprintf("The %s request contains a path of '%s' "+
 				"however that path, or the %s method for that path does not exist in the specification",
@@ -109,8 +113,8 @@ func (v *responseBodyValidator) ValidateResponseBodyWithPathItem(request *http.R
 	if foundResponse != nil {
 		// check for headers in the response
 		if foundResponse.Headers != nil {
-			if ok, herrs := ValidateResponseHeaders(request, response, foundResponse.Headers, pathFound, codeStr); !ok {
-				validationErrors = append(validationErrors, herrs...)
+			if ok, hErrs := ValidateResponseHeaders(request, response, foundResponse.Headers, pathFound, codeStr, config.WithExistingOpts(v.options)); !ok {
+				validationErrors = append(validationErrors, hErrs...)
 			}
 		}
 	}
@@ -131,26 +135,73 @@ func (v *responseBodyValidator) checkResponseSchema(
 ) []*errors.ValidationError {
 	var validationErrors []*errors.ValidationError
 
-	// currently, we can only validate JSON based responses, so check for the presence
-	// of 'json' in the content type (what ever it may be) so we can perform a schema check on it.
-	// anything other than JSON, will be ignored.
-	if strings.Contains(strings.ToLower(contentType), helpers.JSONType) {
-		// extract schema from media type
-		if mediaType.Schema != nil {
-			schema := mediaType.Schema.Schema()
+	if mediaType.Schema == nil {
+		return validationErrors
+	}
 
-			// Validate response schema
-			valid, vErrs := ValidateResponseSchema(&ValidateResponseSchemaInput{
-				Request:  request,
-				Response: response,
-				Schema:   schema,
-				Version:  helpers.VersionToFloat(v.document.Version),
-				Options:  []config.Option{config.WithExistingOpts(v.options)},
-			})
-			if !valid {
-				validationErrors = append(validationErrors, vErrs...)
+	// currently, we can only validate JSON, XML and URL Encoded based responses, so check for the presence
+	// of 'json' (what ever it may be) and for XML/URLEncoded content type so we can perform a schema check on it.
+	// anything other than JSON XML, or URL Encoded will be ignored.
+
+	isXml := schema_validation.IsXMLContentType(contentType)
+	isUrlEncoded := schema_validation.IsURLEncodedContentType(contentType)
+	isJson := strings.Contains(strings.ToLower(contentType), helpers.JSONType)
+
+	xmlValid := isXml && v.options.AllowXMLBodyValidation
+	urlEncodedValid := isUrlEncoded && v.options.AllowURLEncodedBodyValidation
+
+	if !isJson && !xmlValid && !urlEncodedValid {
+		return validationErrors
+	}
+
+	schema := mediaType.Schema.Schema()
+
+	if !isJson {
+		if response != nil && response.Body != http.NoBody {
+			responseBody, _ := io.ReadAll(response.Body)
+			_ = response.Body.Close()
+
+			stringedBody := string(responseBody)
+			var jsonBody any
+			var prevalidationErrors []*errors.ValidationError
+
+			switch {
+			case xmlValid:
+				jsonBody, prevalidationErrors = schema_validation.TransformXMLToSchemaJSON(stringedBody, schema)
+			case urlEncodedValid:
+				jsonBody, prevalidationErrors = schema_validation.TransformURLEncodedToSchemaJSON(stringedBody, schema, mediaType.Encoding)
 			}
+
+			if len(prevalidationErrors) > 0 {
+				return prevalidationErrors
+			}
+
+			transformedBytes, err := json.Marshal(jsonBody)
+			if err != nil {
+				switch {
+				case isXml:
+					return []*errors.ValidationError{errors.InvalidXMLParsing(err.Error(), stringedBody)}
+				case isUrlEncoded:
+					return []*errors.ValidationError{errors.InvalidURLEncodedParsing(err.Error(), stringedBody)}
+				}
+			}
+
+			response.Body = io.NopCloser(bytes.NewBuffer(transformedBytes))
 		}
 	}
+
+	// Validate response schema
+	valid, vErrs := ValidateResponseSchema(&ValidateResponseSchemaInput{
+		Request:  request,
+		Response: response,
+		Schema:   schema,
+		Version:  helpers.VersionToFloat(v.document.Version),
+		Options:  []config.Option{config.WithExistingOpts(v.options)},
+	})
+
+	if !valid {
+		validationErrors = append(validationErrors, vErrs...)
+	}
+
 	return validationErrors
 }

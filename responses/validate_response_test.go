@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/pb33f/libopenapi"
-	"github.com/pb33f/libopenapi-validator/config"
 	"github.com/pb33f/libopenapi/datamodel/high/base"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pb33f/libopenapi-validator/config"
 )
 
 func TestValidateResponseSchema(t *testing.T) {
@@ -247,4 +248,99 @@ func TestValidateResponseSchema_NilSchemaGoLow(t *testing.T) {
 	require.Len(t, errors, 1)
 	assert.Equal(t, "schema cannot be rendered", errors[0].Message)
 	assert.Contains(t, errors[0].Reason, "does not have low-level information")
+}
+
+func TestValidateResponseSchema_CircularReference(t *testing.T) {
+	// Test when schema has a circular reference that causes render failure
+	spec := `openapi: 3.1.0
+info:
+  title: Test
+  version: 1.0.0
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        details:
+          type: array
+          items:
+            $ref: '#/components/schemas/Error'`
+
+	doc, err := libopenapi.NewDocument([]byte(spec))
+	require.NoError(t, err)
+	model, errs := doc.BuildV3Model()
+	require.Empty(t, errs)
+
+	// Verify circular reference was detected
+	require.Len(t, model.Index.GetCircularReferences(), 1)
+
+	schema := model.Model.Components.Schemas.GetOrZero("Error")
+	require.NotNil(t, schema)
+
+	valid, errors := ValidateResponseSchema(&ValidateResponseSchemaInput{
+		Request:  postRequest(),
+		Response: responseWithBody(`{"code": "abc", "details": [{"code": "def"}]}`),
+		Schema:   schema.Schema(),
+		Version:  3.1,
+	})
+
+	assert.False(t, valid)
+	require.Len(t, errors, 1)
+	assert.Contains(t, errors[0].Message, "failed schema rendering")
+	assert.Contains(t, errors[0].Reason, "circular reference")
+}
+
+func TestValidateResponseSchema_ResponseMissing(t *testing.T) {
+	schema := parseSchemaFromSpec(t, `type: object
+properties:
+  name:
+    type: string`, 3.1)
+
+	// Response body missing (NoBody) for a non-HEAD request should error
+	valid, errs := ValidateResponseSchema(&ValidateResponseSchemaInput{
+		Request:  postRequest(),
+		Response: &http.Response{StatusCode: http.StatusOK, Body: http.NoBody},
+		Schema:   schema,
+		Version:  3.1,
+	})
+
+	assert.False(t, valid)
+	require.Len(t, errs, 1)
+	assert.Contains(t, errs[0].Message, "response object is missing")
+}
+
+func TestValidateResponseSchema_HeadEmptySkipsValidation(t *testing.T) {
+	schema := parseSchemaFromSpec(t, `type: object`, 3.1)
+
+	req, _ := http.NewRequest(http.MethodHead, "/test", nil)
+	resp := &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}
+
+	valid, errs := ValidateResponseSchema(&ValidateResponseSchemaInput{
+		Request:  req,
+		Response: resp,
+		Schema:   schema,
+		Version:  3.1,
+	})
+
+	assert.True(t, valid)
+	assert.Len(t, errs, 0)
+}
+
+func TestValidateResponseSchema_HeadWithBodyFails(t *testing.T) {
+	schema := parseSchemaFromSpec(t, `type: object`, 3.1)
+
+	req, _ := http.NewRequest(http.MethodHead, "/test", nil)
+
+	valid, errs := ValidateResponseSchema(&ValidateResponseSchemaInput{
+		Request:  req,
+		Response: responseWithBody(`{"name":"bob"}`),
+		Schema:   schema,
+		Version:  3.1,
+	})
+
+	assert.False(t, valid)
+	require.Len(t, errs, 1)
+	assert.Contains(t, errs[0].Reason, "must not contain a body")
 }

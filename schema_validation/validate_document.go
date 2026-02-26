@@ -1,4 +1,4 @@
-// Copyright 2023 Princess B33f Heavy Industries / Dave Shanley
+// Copyright 2023-2025 Princess Beef Heavy Industries, LLC / Dave Shanley
 // SPDX-License-Identifier: MIT
 
 package schema_validation
@@ -34,6 +34,22 @@ func ValidateOpenAPIDocument(doc libopenapi.Document, opts ...config.Option) (bo
 	info := doc.GetSpecInfo()
 	loadedSchema := info.APISchema
 	var validationErrors []*liberrors.ValidationError
+
+	// Check if SpecJSON is nil before dereferencing
+	if info.SpecJSON == nil {
+		validationErrors = append(validationErrors, &liberrors.ValidationError{
+			ValidationType:    helpers.Schema,
+			ValidationSubType: "document",
+			Message:           "OpenAPI document validation failed",
+			Reason:            "The document's SpecJSON is nil, indicating the document was not properly parsed or is empty",
+			SpecLine:          1,
+			SpecCol:           0,
+			HowToFix:          "ensure the OpenAPI document is valid YAML/JSON and can be properly parsed by libopenapi",
+			Context:           "document root",
+		})
+		return false, validationErrors
+	}
+
 	decodedDocument := *info.SpecJSON
 
 	// Compile the JSON Schema
@@ -41,7 +57,7 @@ func ValidateOpenAPIDocument(doc libopenapi.Document, opts ...config.Option) (bo
 	if err != nil {
 		// schema compilation failed, return validation error instead of panicking
 		validationErrors = append(validationErrors, &liberrors.ValidationError{
-			ValidationType:    "schema",
+			ValidationType:    helpers.Schema,
 			ValidationSubType: "compilation",
 			Message:           "OpenAPI document schema compilation failed",
 			Reason:            fmt.Sprintf("The OpenAPI schema failed to compile: %s", err.Error()),
@@ -66,6 +82,9 @@ func ValidateOpenAPIDocument(doc libopenapi.Document, opts ...config.Option) (bo
 			// flatten the validationErrors
 			schFlatErrs := jk.BasicOutput().Errors
 
+			// Extract property name info once before processing errors (performance optimization)
+			propertyInfo := extractPropertyNameFromError(jk)
+
 			for q := range schFlatErrs {
 				er := schFlatErrs[q]
 
@@ -77,15 +96,14 @@ func ValidateOpenAPIDocument(doc libopenapi.Document, opts ...config.Option) (bo
 
 					// locate the violated property in the schema
 					located := LocateSchemaPropertyNodeByJSONPath(info.RootNode.Content[0], er.InstanceLocation)
-				violation := &liberrors.SchemaValidationFailure{
-					Reason:                  errMsg,
-					Location:                er.InstanceLocation,
-					FieldName:               helpers.ExtractFieldNameFromStringLocation(er.InstanceLocation),
-					FieldPath:               helpers.ExtractJSONPathFromStringLocation(er.InstanceLocation),
-					InstancePath:            helpers.ConvertStringLocationToPathSegments(er.InstanceLocation),
-					KeywordLocation:         er.KeywordLocation,
-					OriginalJsonSchemaError: jk,
-				}
+					violation := &liberrors.SchemaValidationFailure{
+						Reason:                  errMsg,
+						FieldName:               helpers.ExtractFieldNameFromStringLocation(er.InstanceLocation),
+						FieldPath:               helpers.ExtractJSONPathFromStringLocation(er.InstanceLocation),
+						InstancePath:            helpers.ConvertStringLocationToPathSegments(er.InstanceLocation),
+						KeywordLocation:         er.KeywordLocation,
+						OriginalJsonSchemaError: jk,
+					}
 
 					// if we have a location within the schema, add it to the error
 					if located != nil {
@@ -101,6 +119,9 @@ func ValidateOpenAPIDocument(doc libopenapi.Document, opts ...config.Option) (bo
 						// location of the violation within the rendered schema.
 						violation.Line = line
 						violation.Column = located.Column
+					} else {
+						// handles property name validation errors that don't provide useful InstanceLocation
+						applyPropertyNameFallback(propertyInfo, info.RootNode.Content[0], violation)
 					}
 					schemaValidationErrors = append(schemaValidationErrors, violation)
 				}

@@ -8,14 +8,16 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/pb33f/libopenapi-validator/helpers"
-	"github.com/pb33f/libopenapi-validator/parameters"
+	"github.com/pb33f/libopenapi/orderedmap"
+
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 	lowv3 "github.com/pb33f/libopenapi/datamodel/low/v3"
-	"github.com/pb33f/libopenapi/orderedmap"
 
 	"github.com/pb33f/libopenapi-validator/config"
 	"github.com/pb33f/libopenapi-validator/errors"
+	"github.com/pb33f/libopenapi-validator/helpers"
+	"github.com/pb33f/libopenapi-validator/parameters"
+	"github.com/pb33f/libopenapi-validator/strict"
 )
 
 // ValidateResponseHeaders validates the response headers against the OpenAPI spec.
@@ -40,7 +42,9 @@ func ValidateResponseHeaders(
 	// iterate through the response headers
 	for name, v := range response.Header {
 		// check if the model is in the spec
-		for k, header := range headers.FromOldest() {
+		for pair := headers.First(); pair != nil; pair = pair.Next() {
+			k := pair.Key()
+			header := pair.Value()
 			if strings.EqualFold(k, name) {
 				locatedHeaders[strings.ToLower(name)] = headerPair{
 					name:  k,
@@ -52,16 +56,12 @@ func ValidateResponseHeaders(
 	}
 
 	// determine if any required headers are missing from the response
-	for name, header := range headers.FromOldest() {
+	for pair := headers.First(); pair != nil; pair = pair.Next() {
+		name := pair.Key()
+		header := pair.Value()
 		if header.Required {
 			if _, ok := locatedHeaders[strings.ToLower(name)]; !ok {
-				// Construct full OpenAPI path for KeywordLocation
-				// e.g., /paths/~1health/get/responses/200/headers/chicken-nuggets/required
-				escapedPath := strings.ReplaceAll(pathTemplate, "~", "~0")
-				escapedPath = strings.ReplaceAll(escapedPath, "/", "~1")
-				method := strings.ToLower(request.Method)
-				keywordLocation := fmt.Sprintf("/paths/%s/%s/responses/%s/headers/%s/required",
-					escapedPath, method, statusCode, name)
+				keywordLocation := helpers.ConstructResponseHeaderJSONPointer(pathTemplate, request.Method, statusCode, name, "required")
 
 				validationErrors = append(validationErrors, &errors.ValidationError{
 					ValidationType:    helpers.ResponseBodyValidation,
@@ -97,8 +97,35 @@ func ValidateResponseHeaders(
 			}
 		}
 	}
-	if len(validationErrors) == 0 {
-		return true, nil
+
+	if len(validationErrors) > 0 {
+		return false, validationErrors
 	}
-	return false, validationErrors
+
+	// strict mode: check for undeclared response headers
+	if options.StrictMode {
+		// convert orderedmap to regular map for strict validation
+		declaredMap := make(map[string]*v3.Header)
+		for name, header := range headers.FromOldest() {
+			declaredMap[name] = header
+		}
+
+		undeclaredHeaders := strict.ValidateResponseHeaders(response.Header, &declaredMap, options)
+		for _, undeclared := range undeclaredHeaders {
+			validationErrors = append(validationErrors,
+				errors.UndeclaredHeaderError(
+					undeclared.Name,
+					undeclared.Value.(string),
+					undeclared.DeclaredProperties,
+					undeclared.Direction.String(),
+					request.URL.Path,
+					request.Method,
+				))
+		}
+	}
+
+	if len(validationErrors) > 0 {
+		return false, validationErrors
+	}
+	return true, nil
 }

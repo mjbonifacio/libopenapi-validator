@@ -4,6 +4,7 @@
 package config
 
 import (
+	"log/slog"
 	"sync"
 	"testing"
 
@@ -18,8 +19,10 @@ func TestNewValidationOptions_Defaults(t *testing.T) {
 	assert.False(t, opts.FormatAssertions)
 	assert.False(t, opts.ContentAssertions)
 	assert.True(t, opts.SecurityValidation)
-	assert.True(t, opts.OpenAPIMode)          // Default is true
-	assert.False(t, opts.AllowScalarCoercion) // Default is false
+	assert.True(t, opts.OpenAPIMode)                    // Default is true
+	assert.False(t, opts.AllowScalarCoercion)           // Default is false
+	assert.False(t, opts.AllowXMLBodyValidation)        // Default is false
+	assert.False(t, opts.AllowURLEncodedBodyValidation) // Default is false
 	assert.Nil(t, opts.RegexEngine)
 	assert.Nil(t, opts.RegexCache)
 }
@@ -31,8 +34,9 @@ func TestNewValidationOptions_WithNilOption(t *testing.T) {
 	assert.False(t, opts.FormatAssertions)
 	assert.False(t, opts.ContentAssertions)
 	assert.True(t, opts.SecurityValidation)
-	assert.True(t, opts.OpenAPIMode)          // Default is true
-	assert.False(t, opts.AllowScalarCoercion) // Default is false
+	assert.True(t, opts.OpenAPIMode)             // Default is true
+	assert.False(t, opts.AllowScalarCoercion)    // Default is false
+	assert.False(t, opts.AllowXMLBodyValidation) // Default is false
 	assert.Nil(t, opts.RegexEngine)
 	assert.Nil(t, opts.RegexCache)
 }
@@ -43,8 +47,9 @@ func TestWithFormatAssertions(t *testing.T) {
 	assert.True(t, opts.FormatAssertions)
 	assert.False(t, opts.ContentAssertions)
 	assert.True(t, opts.SecurityValidation)
-	assert.True(t, opts.OpenAPIMode)          // Default is true
-	assert.False(t, opts.AllowScalarCoercion) // Default is false
+	assert.True(t, opts.OpenAPIMode)             // Default is true
+	assert.False(t, opts.AllowScalarCoercion)    // Default is false
+	assert.False(t, opts.AllowXMLBodyValidation) // Default is false
 	assert.Nil(t, opts.RegexEngine)
 	assert.Nil(t, opts.RegexCache)
 }
@@ -55,8 +60,9 @@ func TestWithContentAssertions(t *testing.T) {
 	assert.False(t, opts.FormatAssertions)
 	assert.True(t, opts.ContentAssertions)
 	assert.True(t, opts.SecurityValidation)
-	assert.True(t, opts.OpenAPIMode)          // Default is true
-	assert.False(t, opts.AllowScalarCoercion) // Default is false
+	assert.True(t, opts.OpenAPIMode)             // Default is true
+	assert.False(t, opts.AllowScalarCoercion)    // Default is false
+	assert.False(t, opts.AllowXMLBodyValidation) // Default is false
 	assert.Nil(t, opts.RegexEngine)
 	assert.Nil(t, opts.RegexCache)
 }
@@ -92,11 +98,13 @@ func TestWithExistingOpts(t *testing.T) {
 	// Create original options with all settings enabled
 	var testEngine jsonschema.RegexpEngine = nil
 	original := &ValidationOptions{
-		RegexEngine:        testEngine,
-		RegexCache:         &sync.Map{},
-		FormatAssertions:   true,
-		ContentAssertions:  true,
-		SecurityValidation: false,
+		RegexEngine:                   testEngine,
+		RegexCache:                    &sync.Map{},
+		FormatAssertions:              true,
+		AllowXMLBodyValidation:        true,
+		AllowURLEncodedBodyValidation: true,
+		ContentAssertions:             true,
+		SecurityValidation:            false,
 	}
 
 	// Create new options using existing options
@@ -104,6 +112,8 @@ func TestWithExistingOpts(t *testing.T) {
 
 	assert.Nil(t, opts.RegexEngine) // Both should be nil
 	assert.NotNil(t, opts.RegexCache)
+	assert.Equal(t, original.AllowXMLBodyValidation, opts.AllowXMLBodyValidation)
+	assert.Equal(t, original.AllowURLEncodedBodyValidation, opts.AllowURLEncodedBodyValidation)
 	assert.Equal(t, original.FormatAssertions, opts.FormatAssertions)
 	assert.Equal(t, original.ContentAssertions, opts.ContentAssertions)
 	assert.Equal(t, original.SecurityValidation, opts.SecurityValidation)
@@ -118,8 +128,9 @@ func TestWithExistingOpts_NilSource(t *testing.T) {
 	assert.False(t, opts.FormatAssertions)
 	assert.False(t, opts.ContentAssertions)
 	assert.True(t, opts.SecurityValidation)
-	assert.True(t, opts.OpenAPIMode)          // Default is true
-	assert.False(t, opts.AllowScalarCoercion) // Default is false
+	assert.True(t, opts.OpenAPIMode)             // Default is true
+	assert.False(t, opts.AllowScalarCoercion)    // Default is false
+	assert.False(t, opts.AllowXMLBodyValidation) // Default is false
 	assert.Nil(t, opts.RegexEngine)
 	assert.Nil(t, opts.RegexCache)
 }
@@ -128,11 +139,13 @@ func TestMultipleOptions(t *testing.T) {
 	opts := NewValidationOptions(
 		WithFormatAssertions(),
 		WithContentAssertions(),
+		WithXmlBodyValidation(),
 	)
 
 	assert.True(t, opts.FormatAssertions)
 	assert.True(t, opts.ContentAssertions)
 	assert.True(t, opts.SecurityValidation)
+	assert.True(t, opts.AllowXMLBodyValidation)
 	assert.True(t, opts.OpenAPIMode)          // Default is true
 	assert.False(t, opts.AllowScalarCoercion) // Default is false
 	assert.Nil(t, opts.RegexEngine)
@@ -177,6 +190,14 @@ func TestWithExistingOpts_PartialOverride(t *testing.T) {
 	assert.True(t, opts.FormatAssertions)    // From original
 	assert.True(t, opts.ContentAssertions)   // Reapplied, but same value
 	assert.False(t, opts.SecurityValidation) // From original
+}
+
+func TestWithUrlEncodedBodyValidation(t *testing.T) {
+	opts := NewValidationOptions(
+		WithURLEncodedBodyValidation(),
+	)
+
+	assert.True(t, opts.AllowURLEncodedBodyValidation)
 }
 
 func TestComplexScenario(t *testing.T) {
@@ -367,4 +388,106 @@ func TestWithRegexpCache(t *testing.T) {
 	opts := NewValidationOptions(WithRegexCache(syncMap))
 
 	assert.NotNil(t, opts.RegexCache)
+}
+
+// Tests for strict mode configuration options
+
+func TestWithStrictMode(t *testing.T) {
+	opts := NewValidationOptions(WithStrictMode())
+
+	assert.True(t, opts.StrictMode)
+	assert.Nil(t, opts.StrictIgnorePaths)
+	assert.Nil(t, opts.StrictIgnoredHeaders)
+}
+
+func TestWithStrictIgnorePaths(t *testing.T) {
+	paths := []string{"$.body.metadata.*", "$.headers.X-*"}
+	opts := NewValidationOptions(WithStrictIgnorePaths(paths...))
+
+	assert.Equal(t, paths, opts.StrictIgnorePaths)
+	assert.False(t, opts.StrictMode) // Not enabled by default
+}
+
+func TestWithStrictIgnoredHeaders(t *testing.T) {
+	headers := []string{"x-custom-header", "x-another-header"}
+	opts := NewValidationOptions(WithStrictIgnoredHeaders(headers...))
+
+	assert.Equal(t, headers, opts.StrictIgnoredHeaders)
+	assert.False(t, opts.strictIgnoredHeadersMerge)
+}
+
+func TestWithStrictIgnoredHeadersExtra(t *testing.T) {
+	headers := []string{"x-extra-header"}
+	opts := NewValidationOptions(WithStrictIgnoredHeadersExtra(headers...))
+
+	assert.Equal(t, headers, opts.StrictIgnoredHeaders)
+	assert.True(t, opts.strictIgnoredHeadersMerge)
+}
+
+func TestGetEffectiveStrictIgnoredHeaders_Default(t *testing.T) {
+	opts := NewValidationOptions()
+
+	headers := opts.GetEffectiveStrictIgnoredHeaders()
+
+	assert.NotNil(t, headers)
+	assert.Contains(t, headers, "content-type")
+	assert.Contains(t, headers, "authorization")
+}
+
+func TestGetEffectiveStrictIgnoredHeaders_Replace(t *testing.T) {
+	customHeaders := []string{"x-only-this"}
+	opts := NewValidationOptions(WithStrictIgnoredHeaders(customHeaders...))
+
+	headers := opts.GetEffectiveStrictIgnoredHeaders()
+
+	assert.Equal(t, customHeaders, headers)
+	assert.NotContains(t, headers, "content-type") // Default headers are replaced
+}
+
+func TestGetEffectiveStrictIgnoredHeaders_Merge(t *testing.T) {
+	extraHeaders := []string{"x-extra-header"}
+	opts := NewValidationOptions(WithStrictIgnoredHeadersExtra(extraHeaders...))
+
+	headers := opts.GetEffectiveStrictIgnoredHeaders()
+
+	// Should have both defaults and extras
+	assert.Contains(t, headers, "content-type")   // From defaults
+	assert.Contains(t, headers, "x-extra-header") // From extras
+	assert.Contains(t, headers, "authorization")  // From defaults
+}
+
+func TestWithLogger(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(nil, nil))
+	opts := NewValidationOptions(WithLogger(logger))
+
+	assert.Equal(t, logger, opts.Logger)
+}
+
+func TestWithExistingOpts_StrictFields(t *testing.T) {
+	original := &ValidationOptions{
+		StrictMode:                true,
+		StrictIgnorePaths:         []string{"$.body.*"},
+		StrictIgnoredHeaders:      []string{"x-custom"},
+		strictIgnoredHeadersMerge: true,
+		Logger:                    slog.New(slog.NewTextHandler(nil, nil)),
+	}
+
+	opts := NewValidationOptions(WithExistingOpts(original))
+
+	assert.True(t, opts.StrictMode)
+	assert.Equal(t, original.StrictIgnorePaths, opts.StrictIgnorePaths)
+	assert.Equal(t, original.StrictIgnoredHeaders, opts.StrictIgnoredHeaders)
+	assert.True(t, opts.strictIgnoredHeadersMerge)
+	assert.Equal(t, original.Logger, opts.Logger)
+}
+
+func TestStrictModeWithIgnorePaths(t *testing.T) {
+	paths := []string{"$.body.metadata.*"}
+	opts := NewValidationOptions(
+		WithStrictMode(),
+		WithStrictIgnorePaths(paths...),
+	)
+
+	assert.True(t, opts.StrictMode)
+	assert.Equal(t, paths, opts.StrictIgnorePaths)
 }
